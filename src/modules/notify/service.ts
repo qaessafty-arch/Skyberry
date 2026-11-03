@@ -2,6 +2,7 @@ import "server-only";
 import { adminClient } from "@/lib/supabase/server";
 import { decide, type NotifyKind } from "@/lib/notify/rules";
 import { RateLimiter } from "@/lib/security/rateLimit";
+import { sendPush } from "./push";
 
 const limiters = new Map<string, RateLimiter>();
 /** Throws "rate_limited" when the user exceeds `max` calls per `windowMs` for this bucket. */
@@ -16,6 +17,8 @@ export async function notify(userId: string, kind: NotifyKind, payload: Record<s
   const [{ data: s }, { data: p }] = await Promise.all([db.from("user_settings").select("notify,quiet_hours").eq("user_id", userId).maybeSingle(), db.from("profiles").select("tz").eq("id", userId).single()]);
   const d = decide(s ?? {}, kind, { at: new Date(), tz: p?.tz ?? "UTC", mutedUntil: opts.mutedUntil });
   if (d.store) await db.from("notifications").insert({ user_id: userId, kind, payload });
+  // Background push respects quiet hours and muted chats (decide().push); failures never block the action.
+  if (d.push) await sendPush(userId, kind, payload).catch(() => null);
   return d;
 }
 

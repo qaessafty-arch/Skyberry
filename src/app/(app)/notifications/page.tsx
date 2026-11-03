@@ -3,6 +3,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase/browser";
 import { useMe } from "@/lib/data";
+import { PushSetup } from "@/modules/notify/PushSetup";
 
 interface N { id: string; kind: string; payload: Record<string, string>; read_at: string | null; created_at: string }
 const LABEL: Record<string, (p: Record<string, string>) => [string, string]> = {
@@ -28,6 +29,7 @@ export default function Notifications() {
   const markAll = async () => { await supabase().from("notifications").update({ read_at: new Date().toISOString() }).is("read_at", null); load(); };
   return (<>
     <h1>🔔 Notifications</h1>
+    <div className="glass card" style={{ marginBottom: 10 }}><b>Background notifications</b><p className="muted" style={{ margin: "4px 0 8px" }}>Get notified when OCEAN is closed. Messages show only who sent them, never what they say.</p><PushSetup /></div>
     <div className="row"><button className="btn ghost" onClick={markAll}>Mark all read</button>
       {perm === "default" && <button className="btn" onClick={async () => setPerm(await Notification.requestPermission())}>Enable browser notifications</button>}
       {perm === "denied" && <span className="muted">Browser notifications are blocked in your browser settings.</span>}</div>
