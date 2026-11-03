@@ -72,7 +72,7 @@ function Chat() {
 
   const accepted = useMemo(() => friends?.filter((f) => f.status === "accepted") ?? [], [friends]);
   useEffect(() => {
-    if (me) supabase().from("conversations").select("id,title,announcement,only_admins_post").eq("kind", "group").then(({ data }) => setGroups(data ?? []));
+    if (me) supabase().from("conversations").select("id,title,announcement,only_admins_post").eq("kind", "group").or(`expires_at.is.null,expires_at.gt.${new Date().toISOString()}`).then(({ data }) => setGroups(data ?? []));
   }, [me]);
   const cid = q.get("c") ?? accepted[0]?.conversationId ?? groups[0]?.id;
   const active: Friend | undefined = accepted.find((f) => f.conversationId === cid);
@@ -287,7 +287,7 @@ function Chat() {
               {otherId && <button className="btn ghost" style={{ marginTop: 6, marginLeft: 6 }} onClick={async () => { if (confirm(`Block ${active.other.display_name}? They won't be able to message you or see your moments.`)) { await api("/api/blocks", "POST", { userId: otherId, blocked: true }); setToast("Blocked"); } }}>Block</button>}
             </div>
           </div>)}
-        <div className="row" style={{ padding: "6px 10px" }}><button className="btn ghost mobile-only" onClick={() => setPane("list")} aria-label="Back to conversations">‹ Chats</button><button className="btn ghost" onClick={() => setStyling(!styling)} aria-expanded={styling}>🎨 Customize chat</button><button className="btn ghost" onClick={() => setGallery(!gallery)} aria-expanded={gallery}>🖼️ Media</button></div>
+        <div className="row" style={{ padding: "6px 10px" }}><button className="btn ghost mobile-only" onClick={() => setPane("list")} aria-label="Back to conversations">‹ Chats</button><button className="btn ghost" onClick={() => setStyling(!styling)} aria-expanded={styling}>🎨 Customize chat</button><button className="btn ghost" onClick={() => setGallery(!gallery)} aria-expanded={gallery}>🖼️ Media</button>{cid && <><a className="btn ghost" href={`/rooms/${cid}/call?mode=audio`} aria-label="Start a voice call">📞</a><a className="btn ghost" href={`/rooms/${cid}/call?mode=video`} aria-label="Start a video call">🎥</a></>}</div>
         {styling && <div className="card" style={{ display: "grid", gap: 6, borderBottom: "1px solid var(--line)" }}>
           <div className="row"><label>Bubbles <input type="color" value={style.bubble} onChange={(e) => saveStyle({ ...style, bubble: e.target.value })} style={{ width: 50, padding: 2 }} /></label>
             <select aria-label="Background" value={style.bg} onChange={(e) => saveStyle({ ...style, bg: e.target.value as ChatStyle["bg"] })} style={{ width: "auto" }}><option value="none">Default</option><option value="ocean">Ocean</option><option value="deep">Deep sea</option><option value="sunset">Sunset</option><option value="mint">Mint</option><option value="custom">Custom colour</option></select>

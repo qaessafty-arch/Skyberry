@@ -77,7 +77,8 @@ create table public.call_logs (
   started_by uuid not null references public.profiles,
   started_at timestamptz not null default now(),
   ended_at timestamptz,
-  joined uuid[] not null default '{}'
+  joined uuid[] not null default '{}',   -- everyone who ever joined
+  active uuid[] not null default '{}'    -- currently in the call
 );
 alter table public.call_logs enable row level security;
 create policy "members see call log" on public.call_logs for select to authenticated using (public.is_member(conversation_id));
@@ -107,3 +108,26 @@ update storage.buckets set file_size_limit = 536870912, allowed_mime_types = arr
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   'application/vnd.openxmlformats-officedocument.presentationml.presentation'] where id = 'media';
+
+-- Atomic call membership updates (no read-modify-write races between simultaneous joiners/leavers).
+create function public.call_join(p_call uuid, p_user uuid) returns public.call_logs
+language sql security definer set search_path = public as $$
+  update call_logs set
+    joined = case when p_user = any(joined) then joined else array_append(joined, p_user) end,
+    active = case when p_user = any(active) then active else array_append(active, p_user) end
+  where id = p_call and ended_at is null returning *;
+$$;
+create function public.call_leave(p_call uuid, p_user uuid) returns public.call_logs
+language sql security definer set search_path = public as $$
+  update call_logs set active = array_remove(active, p_user),
+    ended_at = case when cardinality(array_remove(active, p_user)) = 0 then now() else ended_at end
+  where id = p_call returning *;
+$$;
+revoke execute on function public.call_join(uuid, uuid), public.call_leave(uuid, uuid) from public, anon, authenticated;
+
+-- ───────────── private realtime channels for calls ─────────────
+-- Signaling (SDP/ICE) flows over Supabase Realtime. Only members of the conversation may read or write `call:<conversation id>`.
+create policy "call members receive" on realtime.messages for select to authenticated
+  using (realtime.messages.extension in ('broadcast','presence') and realtime.topic() ~ '^call:[0-9a-f-]{36}$' and public.is_member(substr(realtime.topic(), 6)::uuid));
+create policy "call members send" on realtime.messages for insert to authenticated
+  with check (realtime.messages.extension in ('broadcast','presence') and realtime.topic() ~ '^call:[0-9a-f-]{36}$' and public.is_member(substr(realtime.topic(), 6)::uuid));

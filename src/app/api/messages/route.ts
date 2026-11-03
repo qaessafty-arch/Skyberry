@@ -37,7 +37,8 @@ export const POST = (req: Request) => authed(async ({ user }) => {
   if (!member) throw new Error("forbidden");
   // Media must live in the sender's own folder.
   const { data: roster } = await db.from("conversation_members").select("user_id,muted_until").eq("conversation_id", b.conversationId);
-  const { data: cv } = await db.from("conversations").select("kind,only_admins_post").eq("id", b.conversationId).single();
+  const { data: cv } = await db.from("conversations").select("kind,only_admins_post,expires_at").eq("id", b.conversationId).single();
+  if (cv?.expires_at && Date.parse(cv.expires_at) < Date.now()) throw new Error("forbidden"); // temporary room has ended
   const myRole = (await db.from("conversation_members").select("role").eq("conversation_id", b.conversationId).eq("user_id", user.id).single()).data?.role;
   if (cv?.kind === "group" && cv.only_admins_post && myRole === "member") throw new Error("forbidden");
   // A block in either direction ends DM delivery.
