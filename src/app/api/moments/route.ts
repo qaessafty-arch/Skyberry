@@ -3,6 +3,7 @@ import { authed } from "@/modules/progression/http";
 import { adminClient } from "@/lib/supabase/server";
 import { record } from "@/modules/progression/service";
 import { limit, notify } from "@/modules/notify/service";
+import { verifyStoredMedia } from "@/modules/media/verify";
 
 const Body = z.object({
   kind: z.enum(["photo", "video", "text", "voice", "mood", "music", "memory"]),
@@ -13,6 +14,7 @@ const Body = z.object({
   audience: z.enum(["private", "friends", "close", "selected"]).default("friends"),
   /** Stories vanish after 24h unless saved as a permanent memory. */
   permanent: z.boolean().default(false),
+  meta: z.object({ cover: z.string().max(300).optional(), url: z.string().url().max(300).optional(), title: z.string().max(100).optional(), lat: z.number().optional(), lng: z.number().optional(), label: z.string().max(80).optional() }).optional(),
   selected: z.array(z.string().uuid()).max(100).default([]),
 });
 
@@ -22,10 +24,19 @@ export const POST = (req: Request) => authed(async ({ user }) => {
   const b = p.data;
   if (b.mediaPath && !b.mediaPath.startsWith(`${user.id}/`)) throw new Error("bad_request");
   limit("moment", user.id, 20);
+  if (b.meta?.cover && !b.meta.cover.startsWith(`${user.id}/`)) throw new Error("bad_request");
+  if (b.meta?.url && !/^https?:\/\//.test(b.meta.url)) throw new Error("bad_request");
   const db = adminClient();
+  // Photo/video moments must reference a real, policy-compliant file of the matching type.
+  if (b.kind === "photo" || b.kind === "video") {
+    if (!b.mediaPath) throw new Error("bad_request");
+    const v = await verifyStoredMedia(db, user.id, b.mediaPath);
+    if (!v || v.kind !== (b.kind === "photo" ? "image" : "video")) throw new Error("bad_request");
+  }
+  if (b.meta?.cover && !(await verifyStoredMedia(db, user.id, b.meta.cover))) throw new Error("bad_request");
 
   const { data: m, error } = await db.from("moments").insert({
-    author_id: user.id, kind: b.kind, body: b.body ?? null, media_path: b.mediaPath ?? null, mood: b.mood ?? null, prompt_id: b.promptId ?? null, audience: b.audience, expires_at: b.permanent || b.audience === "private" ? null : new Date(Date.now() + 86_400_000).toISOString(),
+    author_id: user.id, kind: b.kind, body: b.body ?? null, media_path: b.mediaPath ?? null, mood: b.mood ?? null, prompt_id: b.promptId ?? null, meta: b.meta ?? {}, audience: b.audience, expires_at: b.permanent || b.audience === "private" ? null : new Date(Date.now() + 86_400_000).toISOString(),
   }).select().single();
   if (error) throw error;
 

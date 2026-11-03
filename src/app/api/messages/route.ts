@@ -3,7 +3,7 @@ import { authed } from "@/modules/progression/http";
 import { adminClient } from "@/lib/supabase/server";
 import { record } from "@/modules/progression/service";
 import { isBlocked, limit, notify } from "@/modules/notify/service";
-import { validateUpload } from "@/lib/security/upload";
+import { verifyStoredMedia } from "@/modules/media/verify";
 import { validateGifUrl } from "@/lib/stickers/logic";
 import { userClient } from "@/lib/supabase/server";
 import { safeDisplayName } from "@/lib/media/helpers";
@@ -67,14 +67,9 @@ export const POST = (req: Request) => authed(async ({ user }) => {
   let meta: Record<string, unknown> = b.meta ?? {};
   if ((MEDIA_KINDS as readonly string[]).includes(b.kind)) {
     if (!b.mediaPath || b.mediaPath.includes("..")) throw new Error("bad_request");
-    const [folder, file] = [b.mediaPath.split("/")[0], b.mediaPath.split("/").slice(1).join("/")];
-    const { data: found } = await db.storage.from("media").list(folder, { search: file, limit: 5 });
-    const obj = found?.find((o) => o.name === file);
-    if (!obj) throw new Error("bad_request");
-    const size = Number((obj.metadata as { size?: number } | null)?.size ?? 0);
-    const mime = String((obj.metadata as { mimetype?: string } | null)?.mimetype ?? "");
-    const v = validateUpload(file, mime, size);
-    if (!v.ok || v.kind !== ALLOWED_UPLOAD_KIND[b.kind]) throw new Error("bad_request");
+    const v = await verifyStoredMedia(db, user.id, b.mediaPath);
+    if (!v || v.kind !== ALLOWED_UPLOAD_KIND[b.kind]) throw new Error("bad_request");
+    const { file, size, mime } = v;
     meta = { ...meta, name: safeDisplayName(String(meta.name ?? file)), size, mime };
   }
 

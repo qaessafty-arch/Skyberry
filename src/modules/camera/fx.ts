@@ -34,8 +34,8 @@ export class Fx {
 
   async init(needFace: boolean, needSeg: boolean) { const [l] = await Promise.all([needFace ? getLandmarker("VIDEO") : null, needSeg ? import("./vision").then((v) => v.getSegmenter()) : null]); this.ready = !!l || needSeg; return this.ready; }
 
-  async update(canvas: HTMLCanvasElement, o: FxOptions, now: number) {
-    if (this.busy) return; this.busy = true; const t0 = performance.now();
+  async update(canvas: HTMLCanvasElement, o: FxOptions, now: number, force = false) {
+    if (this.busy) return; this.busy = true; if (force) { this.lastFace = -1e9; this.lastSeg = -1e9; } const t0 = performance.now();
     try {
       const gap = Math.max(60, this.avgCost * 1.5); // adaptive: back off when detection is slow
       const needFace = o.mask !== "none" || o.funny !== "off" || !!o.swap;

@@ -85,7 +85,16 @@ describe("video recording plan (honest labels)", () => {
   });
   it("a non-sensor aspect uses the canvas at up to 1080p and never exceeds the sensor", () => {
     const p = recordingPlan({ effects: false, aspectMatchesSensor: false, sensor: { w: 1280, h: 720 }, aspect: 9 / 16 });
-    expect(p.source).toBe("canvas"); expect(Math.max(p.width, p.height)).toBeLessThanOrEqual(1280); expect(p.width).toBeLessThan(p.height);
+    expect(p.source).toBe("canvas"); expect(p.width).toBeLessThan(p.height);
+    expect(p.height).toBeLessThanOrEqual(720); expect(p.width).toBeLessThanOrEqual(405); // 9:16 crop of a 1280×720 sensor is 405×720 — no upscaling
   });
   it("labels and mime choice", () => { expect(videoLabel(1920, 1080)).toBe("1080p"); expect(videoLabel(1080, 1920)).toBe("1080p"); expect(videoLabel(640, 480)).toBe("SD"); expect(pickVideoMime((t) => t === "video/mp4")?.ext).toBe("mp4"); expect(pickVideoMime(() => false)).toBeNull(); });
+});
+
+describe("recording plan never upscales", () => {
+  it("zoom shrinks the available region", () => {
+    const p = recordingPlan({ effects: true, aspectMatchesSensor: true, sensor: { w: 1280, h: 720 }, aspect: 16 / 9, zoom: 2 });
+    expect(p.width).toBeLessThanOrEqual(640); expect(p.height).toBeLessThanOrEqual(360);
+  });
+  it("uses the stream only when untouched", () => expect(recordingPlan({ effects: false, aspectMatchesSensor: true, sensor: { w: 1280, h: 720 }, aspect: 16 / 9, zoom: 1.5 }).source).toBe("canvas"));
 });

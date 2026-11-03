@@ -3,6 +3,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ASPECTS, cropFor, guidance, groupFraming, goldenLines, thirdLines, type Aspect, type FaceBox } from "./compose";
 import { warpImage } from "./warp";
 import { Editor } from "./Editor";
+import { VideoEditor, type EditedVideo } from "./VideoEditor";
+import { Fx, NO_FX, detectFace, fxActive, type ArMask, type Background, type Funny, type FxOptions } from "./fx";
+import { modelsPresent } from "./vision";
+import { recordingPlan, startRecorder, type RecorderHandle, type Recorded } from "./recorder";
+import { supabase } from "@/lib/supabase/browser";
+import { signedUrl } from "@/lib/data";
 import { qualityLabel } from "./adjust";
 
 export type CameraMode = "quick" | "selfie" | "funny" | "portrait" | "cinematic" | "daily" | "group" | "handsfree" | "360";
@@ -29,7 +35,7 @@ declare global { interface Window { FaceDetector?: new (o?: { fastMode?: boolean
  * Capture studio. Uses real device capabilities where present (zoom/torch/exposure via MediaStream constraints,
  * FaceDetector for composition help) and degrades to digital equivalents otherwise.
  */
-export function CameraStudio({ onDone, reducedMotion }: { onDone: (shot: Shot) => void; reducedMotion?: boolean }) {
+export function CameraStudio({ onDone, onDoneVideo, reducedMotion }: { onDone: (shot: Shot) => void; onDoneVideo?: (v: EditedVideo) => void; reducedMotion?: boolean }) {
   const video = useRef<HTMLVideoElement>(null);
   const preview = useRef<HTMLCanvasElement>(null);
   const stream = useRef<MediaStream | null>(null);
@@ -50,6 +56,11 @@ export function CameraStudio({ onDone, reducedMotion }: { onDone: (shot: Shot) =
   const [layout, setLayout] = useState<"bottom" | "right">("bottom");
   const [stickers, setStickers] = useState<Placed[]>([]); const [pick, setPick] = useState<string | null>(null);
   const [shot, setShot] = useState<Shot | null>(null);
+  const [clip, setClip] = useState<Recorded | null>(null); const editing = !!shot || !!clip;
+  const [fxOpts, setFxOpts] = useState<FxOptions>(NO_FX); const fxRef = useRef(new Fx()); const fxOptsRef = useRef(fxOpts); fxOptsRef.current = fxOpts;
+  const [fxModels, setFxModels] = useState(false); const [fxReady, setFxReady] = useState(false); const [swapList, setSwapList] = useState<{ id: string; media_path: string; name: string | null }[]>([]); const [swapNote, setSwapNote] = useState(""); const [swapId, setSwapId] = useState("");
+  const [kind, setKind] = useState<"photo" | "video">("photo"); const [recording, setRecording] = useState(false); const [recMs, setRecMs] = useState(0);
+  const recorder = useRef<RecorderHandle | null>(null); const recCanvas = useRef<HTMLCanvasElement | null>(null); const recLoop = useRef(0); const recTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const faceFocus = useRef<{ x: number; y: number } | undefined>(undefined);
   const flashOn = useRef(false); const [screenFlash, setScreenFlash] = useState(false);
 
@@ -57,7 +68,7 @@ export function CameraStudio({ onDone, reducedMotion }: { onDone: (shot: Shot) =
 
   // ── start stream (as high as the device allows, up to 4K) ──
   useEffect(() => {
-    if (mode === "360") return;
+    if (mode === "360" || editing) return; // the camera is released while editing, and re-acquired on return
     let dead = false;
     (async () => {
       try {
@@ -72,7 +83,20 @@ export function CameraStudio({ onDone, reducedMotion }: { onDone: (shot: Shot) =
       } catch { setErr("Camera unavailable. Check permissions, or use Upload instead."); }
     })();
     return () => { dead = true; stream.current?.getTracks().forEach((t) => t.stop()); };
-  }, [facing, mode]);
+  }, [facing, mode, editing]);
+
+  // MediaPipe effects (optional model files; see scripts/setup-vision.mjs)
+  useEffect(() => { modelsPresent().then(setFxModels); }, []);
+  useEffect(() => { if (fxModels && fxActive(fxOpts) && !fxReady) fxRef.current.init(fxOpts.mask !== "none" || fxOpts.funny !== "off" || !!fxOpts.swap, fxOpts.background !== "none").then(setFxReady); }, [fxModels, fxOpts, fxReady]);
+  useEffect(() => { if (mode === "funny" && fxModels) setFxOpts((o) => (o.funny === "off" ? { ...o, funny: "bighead" } : o)); }, [mode, fxModels]);
+  // Face swap may ONLY use faces that were explicitly approved (own photos, or friends' stickers they approved — enforced by RLS).
+  useEffect(() => { supabase().from("stickers").select("id,media_path,name,subject_id,consent").in("consent", ["self", "approved"]).limit(40).then(({ data }) => setSwapList((data ?? []).map((x) => ({ id: x.id, media_path: x.media_path, name: x.name })))); }, []);
+  async function chooseSwap(id: string) {
+    setSwapNote(""); setSwapId(id); if (!id) return setFxOpts((o) => ({ ...o, swap: null }));
+    const st = swapList.find((x) => x.id === id); if (!st) return; const url = await signedUrl(st.media_path); if (!url) return setSwapNote("Couldn't load that photo.");
+    const bmp = await createImageBitmap(await (await fetch(url)).blob()); const f = await detectFace(bmp);
+    if (!f) return setSwapNote("No face found in that photo."); setFxOpts((o) => ({ ...o, swap: { bitmap: bmp, frame: f.frame, oval: f.oval } }));
+  }
 
   // hardware zoom / exposure / torch where supported
   const apply = useCallback(async (c: Record<string, unknown>) => { try { await stream.current?.getVideoTracks()[0].applyConstraints({ advanced: [c as MediaTrackConstraintSet] }); return true; } catch { return false; } }, []);
@@ -102,35 +126,70 @@ export function CameraStudio({ onDone, reducedMotion }: { onDone: (shot: Shot) =
     loop(); return () => { stop = true; };
   }, [mode, autoFrame]);
 
-  // live preview: draws the cropped, filtered (and warped) frame
+  // One renderer for preview, photo capture and video recording: crop → filter → (legacy warp) → MediaPipe effects.
+  const renderFrame = useCallback((c: HTMLCanvasElement, W: number, tms: number) => {
+    const v = video.current; if (!v || !v.videoWidth) return false;
+    const fo = fxOptsRef.current; const useFx = fxModels && fxReady && fxActive(fo); const a = ASPECTS[aspect];
+    c.width = W; c.height = Math.round(W / a); const ctx = c.getContext("2d")!;
+    const crop = cropFor(v.videoWidth, v.videoHeight, a, autoFrame ? faceFocus.current : undefined, caps.zoom ? 1 : zoom);
+    ctx.save(); if (facing === "user") { ctx.translate(c.width, 0); ctx.scale(-1, 1); }
+    ctx.filter = filterString(m.filter, intensity, exposure, !caps.exposure); ctx.drawImage(v, crop.x, crop.y, crop.w, crop.h, 0, 0, c.width, c.height); ctx.restore(); ctx.filter = "none";
+    if (useFx) { fxRef.current.update(c, fo, tms); fxRef.current.apply(c, fo, tms); }
+    else if (m.warp) { const id = ctx.getImageData(0, 0, c.width, c.height); const f = faceFocus.current ?? { x: 0.5, y: 0.45 }; ctx.putImageData(new ImageData(warpImage(id, f.x * c.width, f.y * c.height, c.width * 0.32, m.warp * intensity).data as unknown as Uint8ClampedArray<ArrayBuffer>, c.width, c.height), 0, 0); }
+    return true;
+  }, [aspect, facing, m, intensity, exposure, zoom, caps, autoFrame, fxModels, fxReady]);
+
+  // live preview
   useEffect(() => {
     let raf = 0; let last = 0;
     const draw = (t: number) => {
-      raf = requestAnimationFrame(draw);
-      const v = video.current, c = preview.current; if (!v || !c || !v.videoWidth) return;
-      if (t - last < (m.warp ? 66 : 33)) return; last = t;
-      const W = m.warp ? 360 : 720; const a = ASPECTS[aspect]; c.width = W; c.height = Math.round(W / a);
-      const ctx = c.getContext("2d")!; const crop = cropFor(v.videoWidth, v.videoHeight, a, autoFrame ? faceFocus.current : undefined, caps.zoom ? 1 : zoom);
-      ctx.save(); if (facing === "user") { ctx.translate(c.width, 0); ctx.scale(-1, 1); }
-      ctx.filter = filterString(m.filter, intensity, exposure, !caps.exposure); ctx.drawImage(v, crop.x, crop.y, crop.w, crop.h, 0, 0, c.width, c.height); ctx.restore();
-      if (m.warp) { const id = ctx.getImageData(0, 0, c.width, c.height); const f = faceFocus.current ?? { x: 0.5, y: 0.45 }; ctx.putImageData(new ImageData(warpImage(id, f.x * c.width, f.y * c.height, c.width * 0.32, m.warp * intensity).data as unknown as Uint8ClampedArray<ArrayBuffer>, c.width, c.height), 0, 0); }
+      raf = requestAnimationFrame(draw); const c = preview.current; if (!c) return;
+      const heavy = fxActive(fxOptsRef.current) || m.warp; if (t - last < (heavy ? 50 : 33)) return; last = t;
+      renderFrame(c, heavy ? 480 : 720, t);
     };
     raf = requestAnimationFrame(draw); return () => cancelAnimationFrame(raf);
-  }, [aspect, facing, m, intensity, exposure, zoom, caps, autoFrame]);
+  }, [renderFrame, m]);
 
   const capture = useCallback(async () => {
     const v = video.current; if (!v?.videoWidth) return;
     if (timer) { for (let i = timer; i > 0; i--) { setCount(i); await new Promise((r) => setTimeout(r, 1000)); } setCount(0); }
     if (flashOn.current && !caps.torch) { setScreenFlash(true); await new Promise((r) => setTimeout(r, 180)); }
     const a = ASPECTS[aspect]; const crop = cropFor(v.videoWidth, v.videoHeight, a, autoFrame ? faceFocus.current : undefined, caps.zoom ? 1 : zoom);
-    const maxW = m.warp ? 1280 : Math.min(3840, Math.round(crop.w)); const c = document.createElement("canvas"); c.width = maxW; c.height = Math.round(maxW / a);
-    const ctx = c.getContext("2d")!; ctx.save(); if (facing === "user") { ctx.translate(c.width, 0); ctx.scale(-1, 1); }
-    ctx.filter = filterString(m.filter, intensity, exposure, !caps.exposure); ctx.drawImage(v, crop.x, crop.y, crop.w, crop.h, 0, 0, c.width, c.height); ctx.restore();
-    if (m.warp) { const f = faceFocus.current ?? { x: 0.5, y: 0.45 }; const w = warpImage(ctx.getImageData(0, 0, c.width, c.height), f.x * c.width, f.y * c.height, c.width * 0.32, m.warp * intensity); ctx.putImageData(new ImageData(w.data as unknown as Uint8ClampedArray<ArrayBuffer>, c.width, c.height), 0, 0); }
+    const effects = fxModels && fxReady && fxActive(fxOptsRef.current);
+    const maxW = Math.min(effects || m.warp ? 1280 : 3840, Math.round(crop.w)); // never upscale: capped by the real crop; effect frames also capped for speed
+    const c = document.createElement("canvas");
+    if (effects) { // make sure detection has run on THIS frame before the final render
+      renderFrame(c, maxW, performance.now()); await fxRef.current.update(c, fxOptsRef.current, performance.now() + 500, true);
+    }
+    renderFrame(c, maxW, performance.now() + 600);
     setScreenFlash(false);
     const blob = await new Promise<Blob>((res) => c.toBlob((b) => res(b!), "image/jpeg", 0.92));
     setShot({ blob, url: URL.createObjectURL(blob), w: c.width, h: c.height });
-  }, [timer, caps, aspect, autoFrame, zoom, m, facing, intensity, exposure]);
+  }, [timer, caps, aspect, autoFrame, zoom, m, renderFrame, fxModels, fxReady]);
+
+  // ── video recording ──
+  async function startRecording() {
+    const v = video.current; if (!v?.videoWidth || !stream.current) return;
+    let mic: MediaStream | null = null;
+    try { mic = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } }); } catch { /* record silent video */ }
+    const effects = fxModels && fxReady && fxActive(fxOptsRef.current);
+    const plan = recordingPlan({ effects: !!effects || m.warp > 0, aspectMatchesSensor: Math.abs(ASPECTS[aspect] - v.videoWidth / v.videoHeight) < 0.02 && !autoFrame && zoom === 1 && facing !== "user" && m.filter === "none", sensor: { w: v.videoWidth, h: v.videoHeight }, aspect: ASPECTS[aspect], zoom: caps.zoom ? 1 : zoom });
+    let out: MediaStream;
+    if (plan.source === "stream") out = new MediaStream([...stream.current.getVideoTracks(), ...(mic?.getAudioTracks() ?? [])]);
+    else {
+      const c = (recCanvas.current = document.createElement("canvas")); const loop = (t: number) => { recLoop.current = requestAnimationFrame(loop); renderFrame(c, plan.width, t); }; recLoop.current = requestAnimationFrame(loop);
+      out = new MediaStream([...c.captureStream(plan.fps).getVideoTracks(), ...(mic?.getAudioTracks() ?? [])]);
+    }
+    const h = startRecorder(out, plan, 60_000, () => finishRecording()); if (!h) { setErr("Video recording isn't supported in this browser."); cancelAnimationFrame(recLoop.current); mic?.getTracks().forEach((t) => t.stop()); return; }
+    recorder.current = h; setRecording(true); setRecMs(0); const t0 = Date.now(); recTimer.current = setInterval(() => setRecMs(Date.now() - t0), 200);
+    (recorder.current as RecorderHandle & { mic?: MediaStream | null }).mic = mic;
+  }
+  async function finishRecording() {
+    const h = recorder.current as (RecorderHandle & { mic?: MediaStream | null }) | null; if (!h) return; recorder.current = null; if (recTimer.current) clearInterval(recTimer.current);
+    cancelAnimationFrame(recLoop.current); setRecording(false);
+    try { const r = await h.stop(); h.mic?.getTracks().forEach((t) => t.stop()); setClip(r); } catch { h.mic?.getTracks().forEach((t) => t.stop()); }
+  }
+  useEffect(() => () => { recorder.current?.cancel(); cancelAnimationFrame(recLoop.current); if (recTimer.current) clearInterval(recTimer.current); }, []);
 
   // hands-free: capture when the user says "cheese" if speech recognition exists; otherwise a timer does the job
   useEffect(() => {
@@ -142,6 +201,7 @@ export function CameraStudio({ onDone, reducedMotion }: { onDone: (shot: Shot) =
   }, [mode, capture]);
 
   const row = layout === "bottom";
+  if (clip) return <VideoEditor clip={clip} onBack={() => { URL.revokeObjectURL(clip.url); setClip(null); }} onDone={(v) => onDoneVideo?.(v)} />;
   if (shot) return <Editor shot={shot} onBack={() => { URL.revokeObjectURL(shot.url); setShot(null); }} onDone={onDone} />;
 
   return (
@@ -170,11 +230,26 @@ export function CameraStudio({ onDone, reducedMotion }: { onDone: (shot: Shot) =
             <button className="btn ghost" onClick={() => setFacing(facing === "user" ? "environment" : "user")}>🔄 Flip</button>
             <button className={`btn ${autoFrame ? "" : "ghost"}`} onClick={() => setAutoFrame(!autoFrame)} aria-pressed={autoFrame} title={window.FaceDetector ? "Follow the subject" : "Needs a browser with face detection"}>🎯 Auto-frame</button>
             <button className="btn ghost" onClick={() => setLayout(layout === "bottom" ? "right" : "bottom")}>↔ Layout</button></div>
+          <details className="glass card" style={{ padding: 10 }} open={fxActive(fxOpts)}><summary>✨ Effects {!fxModels && <span className="muted">(models not installed — run <code>npm run setup:vision</code>)</span>}</summary>
+            <div style={{ display: "grid", gap: 6, marginTop: 8, opacity: fxModels ? 1 : 0.5, pointerEvents: fxModels ? "auto" : "none" }}>
+              <label>Background<select value={fxOpts.background} onChange={(e) => setFxOpts({ ...fxOpts, background: e.target.value as Background })}><option value="none">Original</option><option value="blur">Blur</option><option value="ocean">Ocean</option><option value="sunset">Sunset</option><option value="night">Night sky</option></select></label>
+              <label>Mask<select value={fxOpts.mask} onChange={(e) => setFxOpts({ ...fxOpts, mask: e.target.value as ArMask })}><option value="none">None</option><option value="sunglasses">Sunglasses</option><option value="party">Party hat</option><option value="crown">Crown</option><option value="bunny">Bunny ears</option><option value="cat">Cat</option><option value="bubbles">Ocean bubbles</option></select></label>
+              <label>Face fun<select value={fxOpts.funny} onChange={(e) => setFxOpts({ ...fxOpts, funny: e.target.value as Funny })}><option value="off">Off</option><option value="bighead">Big head</option><option value="tinyface">Tiny face</option><option value="bigeyes">Big eyes</option></select></label>
+              <label>Face swap <span className="muted">(only faces people approved)</span><select value={swapId} onChange={(e) => chooseSwap(e.target.value)}><option value="">Off</option>{swapList.map((x) => <option key={x.id} value={x.id}>{x.name ?? "Sticker face"}</option>)}</select></label>
+              {swapNote && <span role="status" className="chip">{swapNote}</span>}
+              {fxActive(fxOpts) && !fxReady && <span className="muted">Loading effects…</span>}
+            </div></details>
           {res && <span className="muted">{res} · {qualityLabel(...(res.split("×").map(Number) as [number, number]))} (actual sensor output){!window.FaceDetector && " · composition tips unavailable in this browser"}</span>}
         </div>
       </div>
+      <div className="row" style={{ justifyContent: "center" }} role="group" aria-label="Capture type">
+        <button className={`btn ${kind === "photo" ? "" : "ghost"}`} onClick={() => setKind("photo")} disabled={recording}>Photo</button>
+        <button className={`btn ${kind === "video" ? "" : "ghost"}`} onClick={() => setKind("video")} disabled={recording}>Video</button>
+      </div>
       <div className="row" style={{ justifyContent: "center" }}>
-        <button onClick={capture} disabled={!!err || mode === "360"} aria-label="Take photo" style={{ width: 72, height: 72, borderRadius: 99, border: "5px solid #fff", background: "linear-gradient(135deg,var(--blue),var(--cyan))", boxShadow: "0 6px 20px #0a84ff66", cursor: "pointer" }} />
+        {recording && <span role="status" className="chip" style={{ background: "#ffe3e3" }}>● {Math.floor(recMs / 60000)}:{String(Math.floor((recMs % 60000) / 1000)).padStart(2, "0")} / 1:00</span>}
+        {kind === "video" ? <button onClick={recording ? finishRecording : startRecording} disabled={!!err || mode === "360"} aria-label={recording ? "Stop recording" : "Start recording"} style={{ width: 72, height: 72, borderRadius: recording ? 18 : 99, border: "5px solid #fff", background: recording ? "#d6336c" : "linear-gradient(135deg,#ff5c8a,#d6336c)", boxShadow: "0 6px 20px #d6336c66", cursor: "pointer" }} /> :
+        <button onClick={capture} disabled={!!err || mode === "360"} aria-label="Take photo" style={{ width: 72, height: 72, borderRadius: 99, border: "5px solid #fff", background: "linear-gradient(135deg,var(--blue),var(--cyan))", boxShadow: "0 6px 20px #0a84ff66", cursor: "pointer" }} />}
         <label className="btn ghost" style={{ cursor: "pointer" }}>🖼️ Upload<input type="file" accept="image/*" hidden onChange={async (e) => { const f = e.target.files?.[0]; if (!f) return; const b = await createImageBitmap(f); setShot({ blob: f, url: URL.createObjectURL(f), w: b.width, h: b.height }); }} /></label>
       </div>
     </div>);

@@ -20,7 +20,7 @@ export function StoryViewer({ stories, name, meId, start = 0, reduced, onClose, 
 
   useEffect(() => { if (s && !mine) api(`/api/moments/${s.id}`, "POST", { action: "view" }); }, [s, mine]);
   useEffect(() => {
-    if (paused || viewers) return; const t0 = Date.now() - pct * DURATION / 100;
+    if (paused || viewers || s?.kind === "video") return; const t0 = Date.now() - pct * DURATION / 100;
     const id = setInterval(() => { const p = ((Date.now() - t0) / DURATION) * 100; if (p >= 100) next(); else setPct(p); }, 50);
     return () => clearInterval(id);
   }, [i, paused, viewers, next]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -41,7 +41,7 @@ export function StoryViewer({ stories, name, meId, start = 0, reduced, onClose, 
           <button className="btn ghost" onClick={onClose} aria-label="Close" style={{ color: "#fff", background: "#ffffff22" }}>✕</button>
         </div>
         <div style={{ flex: 1, position: "relative", display: "grid", placeItems: "center", padding: 12 }} onPointerDown={() => setPaused(true)} onPointerUp={() => setPaused(false)}>
-          {s.media_path ? <Media path={s.media_path} alt={s.body ?? "Moment"} style={{ maxHeight: "60dvh", objectFit: "contain" }} /> : <div style={{ fontSize: "1.8rem", textAlign: "center", padding: 24 }}>{s.mood} {s.body}</div>}
+          {s.media_path ? <Media path={s.media_path} alt={s.body ?? "Moment"} video={s.kind === "video"} autoPlay onEnded={next} style={{ maxHeight: "60dvh", objectFit: "contain" }} /> : <div style={{ fontSize: "1.8rem", textAlign: "center", padding: 24 }}>{s.mood} {s.body}</div>}
           {s.media_path && (s.body || s.mood) && <div style={{ position: "absolute", bottom: 20, left: 0, right: 0, textAlign: "center", textShadow: "0 2px 8px #000" }}>{s.mood} {s.body}</div>}
           <button aria-label="Previous" onClick={prev} style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: "30%", background: "none", border: 0, cursor: "w-resize" }} />
           <button aria-label="Next" onClick={next} style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: "30%", background: "none", border: 0, cursor: "e-resize" }} />

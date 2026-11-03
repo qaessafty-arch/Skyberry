@@ -14,7 +14,9 @@ export function VideoEditor({ clip, onDone, onBack }: { clip: Recorded; onDone: 
   const [cover, setCover] = useState(0); const [volume, setVolume] = useState(1); const [filter, setFilter] = useState("none"); const [busy, setBusy] = useState(false); const [pct, setPct] = useState(0); const [err, setErr] = useState("");
   const abort = useRef(false);
 
-  useEffect(() => { const v = vid.current!; let live = true; (async () => { const d = await readDuration(v); if (!live) return; setDur(d); setEnd(d); })(); return () => { live = false; }; }, [clip.url]);
+  useEffect(() => { const v = vid.current!; let live = true; (async () => { // MediaRecorder files often lack a duration; if seeking can't recover it quickly, fall back to the time we measured while recording.
+      const measured = await Promise.race([readDuration(v), new Promise<number>((r) => setTimeout(() => r(0), 1200))]); const d = measured > 0 && Number.isFinite(measured) ? measured : clip.durationMs / 1000;
+      if (!live) return; setDur(d); setEnd((e) => (e === 0 ? d : e)); /* never clobber a trim the user already made */ })(); return () => { live = false; }; }, [clip.url, clip.durationMs]);
   useEffect(() => { const v = vid.current; if (!v) return; v.volume = Math.min(1, volume); v.style.filter = filter; }, [volume, filter]);
   // loop within the trimmed range while previewing
   useEffect(() => { const v = vid.current; if (!v) return; const h = () => { if (v.currentTime >= end - 0.05) v.currentTime = start; }; v.addEventListener("timeupdate", h); return () => v.removeEventListener("timeupdate", h); }, [start, end]);

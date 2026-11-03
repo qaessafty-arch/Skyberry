@@ -6,12 +6,13 @@ export interface RecordingPlan { source: "stream" | "canvas"; width: number; hei
  * can't apply crops/effects; compositing through a canvas lets effects apply but caps resolution for performance.
  * We never claim a resolution we aren't recording.
  */
-export function recordingPlan(o: { effects: boolean; aspectMatchesSensor: boolean; sensor: { w: number; h: number }; aspect: number }): RecordingPlan {
+export function recordingPlan(o: { effects: boolean; aspectMatchesSensor: boolean; sensor: { w: number; h: number }; aspect: number; zoom?: number }): RecordingPlan {
   const { w, h } = o.sensor;
-  if (!o.effects && o.aspectMatchesSensor) return { source: "stream", width: w, height: h, label: videoLabel(w, h), fps: 30 };
-  const cap = o.effects ? 1280 : 1920; const longSide = Math.min(cap, Math.max(w, h));
-  let W = o.aspect >= 1 ? longSide : Math.round(longSide * o.aspect), H = o.aspect >= 1 ? Math.round(longSide / o.aspect) : longSide;
-  W -= W % 2; H -= H % 2; // encoders want even dimensions
+  if (!o.effects && o.aspectMatchesSensor && (o.zoom ?? 1) === 1) return { source: "stream", width: w, height: h, label: videoLabel(w, h), fps: 30 };
+  // Size of the region actually available after cropping to the aspect (and digital zoom): output is NEVER larger than this.
+  let cw = w, ch = w / o.aspect; if (ch > h) { ch = h; cw = h * o.aspect; } cw /= o.zoom ?? 1; ch /= o.zoom ?? 1;
+  const cap = o.effects ? 1280 : 1920; const scale = Math.min(1, cap / Math.max(cw, ch));
+  let W = Math.round(cw * scale), H = Math.round(ch * scale); W -= W % 2; H -= H % 2; // encoders want even dimensions
   return { source: "canvas", width: W, height: H, label: videoLabel(W, H), fps: o.effects ? 24 : 30 };
 }
 export function videoLabel(w: number, h: number): string {
@@ -48,6 +49,7 @@ export function startRecorder(stream: MediaStream, plan: RecordingPlan, maxMs = 
 
 /** MediaRecorder WebM files report duration = Infinity until seeked; this forces the real value. */
 export async function readDuration(v: HTMLVideoElement): Promise<number> {
+  if (v.readyState < 1) await new Promise<void>((res) => { v.addEventListener("loadedmetadata", () => res(), { once: true }); });
   if (Number.isFinite(v.duration) && v.duration > 0) return v.duration;
   await new Promise<void>((res) => { const done = () => { v.removeEventListener("timeupdate", done); res(); }; v.addEventListener("timeupdate", done); v.currentTime = 1e9; });
   const d = v.duration; v.currentTime = 0; return Number.isFinite(d) ? d : 0;

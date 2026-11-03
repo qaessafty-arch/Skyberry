@@ -75,7 +75,7 @@ export default function Moments() {
       <div className="grid">{items.map((m) => (
         <article key={m.id} className="glass card">
           <div className="row"><b>{names.get(m.author_id) ?? "Friend"}</b><span className="muted">{new Date(m.created_at).toLocaleString()}</span>{m.audience === "private" && <span className="chip">🔒 only me</span>}</div>
-          {m.media_path && <Media path={m.media_path} alt={m.body ?? "Moment photo"} />}{m.mood && <p>{m.mood}</p>}{m.body && <p>{m.body}</p>}
+          {m.media_path && <Media path={m.media_path} alt={m.body ?? "Moment"} video={m.kind === "video"} />}{m.mood && <p>{m.mood}</p>}{m.body && <p>{m.body}</p>}
         </article>))}
         {!items.length && <p className="muted">Nothing yet — share the first moment.</p>}</div>
       {viewing && <StoryViewer stories={items.filter((m) => m.author_id === viewing && (!m.expires_at || Date.parse(m.expires_at) > Date.now())).reverse() as Story[]} name={names.get(viewing) ?? "Friend"} meId={me!.id} reduced={prefs.reducedMotion} onClose={() => { setViewing(null); load(); }} onMute={() => { const n = [...muted, viewing]; setMuted(n); localStorage.setItem("ocean.mutedMoments", JSON.stringify(n)); }} />}</>}
@@ -88,7 +88,7 @@ export default function Moments() {
           : <label className="btn" style={{ cursor: "pointer" }}>📸 Add my photo<input type="file" accept="image/*" hidden onChange={(e) => e.target.files?.[0] && submitReveal(f.friendshipId, e.target.files[0])} /></label>}</div>);
     })}</div>}
 
-    {tab === "roll" && <div className="grid" style={{ marginTop: 12 }}>{mine.filter((m) => m.media_path).map((m) => <Media key={m.id} path={m.media_path!} alt="My moment" />)}{!mine.some((m) => m.media_path) && <p className="muted">Your private photo roll fills as you share.</p>}</div>}
+    {tab === "roll" && <div className="grid" style={{ marginTop: 12 }}>{mine.filter((m) => m.media_path).map((m) => <Media key={m.id} path={m.media_path!} alt="My moment" video={m.kind === "video"} />)}{!mine.some((m) => m.media_path) && <p className="muted">Your private photo roll fills as you share.</p>}</div>}
 
     {tab === "recap" && <div style={{ marginTop: 12 }}><h2>{new Date().toLocaleString(undefined, { month: "long" })} in moments</h2><p className="muted">{month.length} moments · {month.filter((m) => m.media_path).length} photos</p>
       <div className="grid">{month.filter((m) => m.media_path).slice(0, 12).map((m, i) => <div key={m.id} style={{ animation: `pop .5s ${i * 0.08}s both` }}><Media path={m.media_path!} alt="Recap" /></div>)}</div>
