@@ -18,6 +18,7 @@ import { useSwipe } from "@/lib/useSwipe";
 import { MediaGallery } from "@/modules/media/MediaGallery";
 import { useUploadQueue } from "@/modules/media/useUploadQueue";
 import { UploadPanel } from "@/modules/media/UploadPanel";
+import { ChatStyleEditor, useBgUrl } from "@/modules/social/ChatStyleEditor";
 import { DEFAULT_STYLE, sanitizeStyle, styleVars, type ChatStyle } from "@/modules/social/chatStyle";
 
 const STICKERS = ["😂", "🥹", "🔥", "🫶", "🐙", "🦈", "🐬", "🌊", "🎉", "💙"];
@@ -137,8 +138,9 @@ function Chat() {
   // per-conversation look (persists across sessions and devices via the DB)
   useEffect(() => {
     if (!cid || !me) return; setStyling(false);
-    supabase().from("chat_customizations").select("settings").eq("user_id", me.id).eq("conversation_id", cid).maybeSingle().then(({ data }) => setStyle(sanitizeStyle(data?.settings)));
+    supabase().from("chat_customizations").select("settings").eq("user_id", me.id).eq("conversation_id", cid).maybeSingle().then(async ({ data }) => { if (data?.settings) return setStyle(sanitizeStyle(data.settings)); const { data: us } = await supabase().from("user_settings").select("appearance").eq("user_id", me.id).maybeSingle(); setStyle(sanitizeStyle(us?.appearance?.chatDefault)); });
   }, [cid, me]);
+  const bgUrl = useBgUrl(style);
   async function saveStyle(s: ChatStyle) { setStyle(s); if (cid && me) await supabase().from("chat_customizations").upsert({ user_id: me.id, conversation_id: cid, settings: s, updated_at: new Date().toISOString() }); }
 
   // sidebar unread counts
@@ -272,7 +274,7 @@ function Chat() {
             <span>{f.conversationId && unread[f.conversationId] ? <span className="chip">{unread[f.conversationId]}</span> : null}{s.value > 0 && ` ${s.status === "resting" ? "🌙" : "🔥"} ${s.value}`}</span>
           </button>); })}
       </aside>
-      <section ref={threadRef} className="glass thread" style={{ ...(styleVars(style) as React.CSSProperties), position: "relative" }} {...dragProps}>
+      <section ref={threadRef} className="glass thread" style={{ ...(styleVars(style, bgUrl) as React.CSSProperties), position: "relative" }} {...dragProps}>
         {dragging && <div role="presentation" style={{ position: "absolute", inset: 0, zIndex: 5, display: "grid", placeItems: "center", background: "rgba(10,132,255,.18)", border: "3px dashed var(--blue)", borderRadius: 22, pointerEvents: "none", fontWeight: 700, fontSize: "1.2rem" }}>Drop to share in this chat 🌊</div>}
         {!online && <div role="status" className="chip" style={{ margin: 8, background: "#ffe3e3" }}>You're offline — messages will wait to be sent. Check your connection.</div>}
         {group && <div style={{ padding: 12, borderBottom: "1px solid var(--line)" }}><div className="row" style={{ justifyContent: "space-between" }}><span><b>🏝️ {group.title}</b> <span className="muted">· group room</span></span><a className="btn ghost" href={`/rooms/${group.id}`}>⚙️ Group settings</a></div>{group.announcement && <div style={{ marginTop: 6 }} role="note">📣 {group.announcement}</div>}</div>}
@@ -288,15 +290,7 @@ function Chat() {
             </div>
           </div>)}
         <div className="row" style={{ padding: "6px 10px" }}><button className="btn ghost mobile-only" onClick={() => setPane("list")} aria-label="Back to conversations">‹ Chats</button><button className="btn ghost" onClick={() => setStyling(!styling)} aria-expanded={styling}>🎨 Customize chat</button><button className="btn ghost" onClick={() => setGallery(!gallery)} aria-expanded={gallery}>🖼️ Media</button>{cid && <><a className="btn ghost" href={`/rooms/${cid}/call?mode=audio`} aria-label="Start a voice call">📞</a><a className="btn ghost" href={`/rooms/${cid}/call?mode=video`} aria-label="Start a video call">🎥</a></>}</div>
-        {styling && <div className="card" style={{ display: "grid", gap: 6, borderBottom: "1px solid var(--line)" }}>
-          <div className="row"><label>Bubbles <input type="color" value={style.bubble} onChange={(e) => saveStyle({ ...style, bubble: e.target.value })} style={{ width: 50, padding: 2 }} /></label>
-            <select aria-label="Background" value={style.bg} onChange={(e) => saveStyle({ ...style, bg: e.target.value as ChatStyle["bg"] })} style={{ width: "auto" }}><option value="none">Default</option><option value="ocean">Ocean</option><option value="deep">Deep sea</option><option value="sunset">Sunset</option><option value="mint">Mint</option><option value="custom">Custom colour</option></select>
-            {style.bg === "custom" && <input type="color" aria-label="Background colour" value={style.bgColor} onChange={(e) => saveStyle({ ...style, bgColor: e.target.value })} style={{ width: 50, padding: 2 }} />}
-            <select aria-label="Font" value={style.family} onChange={(e) => saveStyle({ ...style, family: e.target.value as ChatStyle["family"] })} style={{ width: "auto" }}><option value="system">System</option><option value="rounded">Rounded</option><option value="serif">Serif</option><option value="mono">Mono</option></select></div>
-          <label>Text size {style.font}px<input type="range" min={12} max={22} value={style.font} onChange={(e) => setStyle({ ...style, font: +e.target.value })} onPointerUp={() => saveStyle(style)} onKeyUp={() => saveStyle(style)} /></label>
-          <label>Bubble roundness<input type="range" min={4} max={28} value={style.radius} onChange={(e) => setStyle({ ...style, radius: +e.target.value })} onPointerUp={() => saveStyle(style)} onKeyUp={() => saveStyle(style)} /></label>
-          <label>Spacing<input type="range" min={2} max={20} value={style.gap} onChange={(e) => setStyle({ ...style, gap: +e.target.value })} onPointerUp={() => saveStyle(style)} onKeyUp={() => saveStyle(style)} /></label>
-          <div className="row"><button className="btn ghost" onClick={() => saveStyle(DEFAULT_STYLE)}>Reset</button><span className="muted">Changes preview live and sync to your other devices.</span></div></div>}
+        {styling && <div className="card" style={{ borderBottom: "1px solid var(--line)" }}><ChatStyleEditor style={style} onChange={setStyle} onCommit={saveStyle} /></div>}
         <form onSubmit={doSearch} className="row" style={{ padding: "8px 10px", borderBottom: "1px solid var(--line)" }} role="search">
           <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search this conversation…" aria-label="Search messages" style={{ flex: 1 }} />
           {results && <button type="button" className="btn ghost" onClick={() => { setResults(null); setSearch(""); }}>Clear ({results.length})</button>}

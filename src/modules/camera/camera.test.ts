@@ -98,3 +98,17 @@ describe("recording plan never upscales", () => {
   });
   it("uses the stream only when untouched", () => expect(recordingPlan({ effects: false, aspectMatchesSensor: true, sensor: { w: 1280, h: 720 }, aspect: 16 / 9, zoom: 1.5 }).source).toBe("canvas"));
 });
+
+describe("chat style: background image paths", () => {
+  const uid = "00000000-0000-0000-0000-00000000000a";
+  it("accepts only own-folder storage paths", () => {
+    expect(sanitizeStyle({ bg: "image", bgPath: `${uid}/bg-1.webp` }).bgPath).toBe(`${uid}/bg-1.webp`);
+    for (const bad of ["../x", "https://evil.com/a.png", `${uid}/../../etc`, "javascript:alert(1)", "a/b"]) expect(sanitizeStyle({ bg: "image", bgPath: bad as never }).bgPath).toBeNull();
+  });
+  it("clamps dim/blur", () => { const s = sanitizeStyle({ bgBlur: 999, bgDim: 5 }); expect(s.bgBlur).toBe(20); expect(s.bgDim).toBe(0.8); });
+});
+
+import { rng } from "../social/generateBackground";
+describe("seeded generator", () => {
+  it("is deterministic per seed and varies across seeds", () => { const a = rng(7), b = rng(7), c = rng(8); const A = [a(), a(), a()], B = [b(), b(), b()]; expect(A).toEqual(B); expect(c()).not.toBe(A[0]); for (const v of A) { expect(v).toBeGreaterThanOrEqual(0); expect(v).toBeLessThan(1); } });
+});

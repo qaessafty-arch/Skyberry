@@ -29,7 +29,7 @@ export default function Moments() {
   const me = useMe(); const { friends } = useFriends(me); const [prefs] = usePrefs();
   const [viewing, setViewing] = useState<string | null>(null); const [seen, setSeen] = useState<Set<string>>(new Set());
   const [muted, setMuted] = useState<string[]>(() => { try { return JSON.parse(localStorage.getItem("ocean.mutedMoments") ?? "[]"); } catch { return []; } });
-  const [permanent, setPermanent] = useState(false);
+  const [permanent, setPermanent] = useState(false); const [picked, setPicked] = useState<string[]>([]); const [groupId, setGroupId] = useState(""); const [groups, setGroups] = useState<{ id: string; title: string }[]>([]); const [music, setMusic] = useState({ title: "", url: "" }); const [loc, setLoc] = useState<{ lat: number; lng: number } | null>(null);
   const [tab, setTab] = useState<"feed" | "reveal" | "roll" | "recap">("feed");
   const [items, setItems] = useState<Moment[]>([]); const [reveals, setReveals] = useState<Reveal[]>([]);
   const [text, setText] = useState(""); const [mood, setMood] = useState(""); const [aud, setAud] = useState("friends"); const [file, setFile] = useState<File | null>(null); const [note, setNote] = useState("");
@@ -43,12 +43,15 @@ export default function Moments() {
     const { data: v } = await sb.from("moment_views").select("moment_id").eq("viewer_id", me?.id ?? ""); setSeen(new Set((v ?? []).map((x) => x.moment_id)));
   }, [today, me?.id]);
   useEffect(() => { if (me) load(); }, [me, load]);
+  useEffect(() => { if (me) supabase().from("conversations").select("id,title").eq("kind", "group").then(({ data }) => setGroups(data ?? [])); }, [me]);
+  function shareLoc() { if (loc) return setLoc(null); navigator.geolocation?.getCurrentPosition((p) => { if (confirm("Attach your current location to this moment?")) setLoc({ lat: Math.round(p.coords.latitude * 1e4) / 1e4, lng: Math.round(p.coords.longitude * 1e4) / 1e4 }); }, () => setNote("Couldn't get your location"), { timeout: 10_000 }); }
 
   async function post(e: React.FormEvent) {
-    e.preventDefault(); if (!text.trim() && !file && !mood) return;
+    e.preventDefault(); if (!text.trim() && !file && !mood && !music.title.trim()) return; if (aud === "group" && !groupId) return setNote("Pick a group.");
     const mediaPath = file ? await uploadMedia(file, file.name.split(".").pop() ?? "jpg") : undefined;
-    const r = await api("/api/moments", "POST", { kind: file ? "photo" : mood && !text ? "mood" : "text", body: text || undefined, mood: mood || undefined, mediaPath, audience: aud, permanent, promptId: prompt.id });
-    setNote(r.error ? "Couldn't post." : "Shared ✨"); setText(""); setMood(""); setFile(null); load();
+    const hasMusic = music.title.trim().length > 0; const meta = { ...(hasMusic ? { title: music.title.trim().slice(0, 100), url: /^https?:\/\//.test(music.url.trim()) ? music.url.trim() : undefined } : {}), ...(loc ? { lat: loc.lat, lng: loc.lng, label: "Shared location" } : {}) };
+    const r = await api("/api/moments", "POST", { kind: file ? "photo" : hasMusic && !text ? "music" : mood && !text ? "mood" : "text", body: text || undefined, mood: mood || undefined, mediaPath, audience: aud === "group" ? "selected" : aud, groupId: aud === "group" ? groupId || undefined : undefined, selected: aud === "selected" ? picked : [], meta: Object.keys(meta).length ? meta : undefined, permanent, promptId: prompt.id });
+    setNote(r.error ? "Couldn't post." : "Shared ✨"); setText(""); setMood(""); setFile(null); setMusic({ title: "", url: "" }); setLoc(null); setPicked([]); load();
   }
   async function submitReveal(fid: string, f: File) {
     const path = await uploadMedia(f, f.name.split(".").pop() ?? "jpg");
@@ -70,12 +73,15 @@ export default function Moments() {
         <textarea rows={2} placeholder="What's happening?" value={text} onChange={(e) => setText(e.target.value)} aria-label="Moment text" />
         <div className="row">{MOODS.map((m) => <button type="button" key={m} className={`chip`} style={{ border: m === mood ? "2px solid var(--blue)" : "2px solid transparent", cursor: "pointer" }} onClick={() => setMood(m === mood ? "" : m)}>{m}</button>)}</div>
         <div className="row"><label className="btn ghost" style={{ cursor: "pointer" }}>📎 Photo<input type="file" accept="image/*" hidden onChange={(e) => setFile(e.target.files?.[0] ?? null)} /></label>{file && <span className="muted">{file.name}</span>}
-          <select value={aud} onChange={(e) => setAud(e.target.value)} aria-label="Audience" style={{ width: "auto" }}><option value="friends">All friends</option><option value="close">Close friends</option><option value="private">Only me</option></select><label className="chip"><input type="checkbox" style={{ width: "auto" }} checked={permanent} onChange={(e) => setPermanent(e.target.checked)} /> Keep as memory (no 24h expiry)</label><button className="btn">Share</button></div>
+          <select value={aud} onChange={(e) => setAud(e.target.value)} aria-label="Audience" style={{ width: "auto" }}><option value="friends">All friends</option><option value="close">Close friends</option><option value="selected">Selected friends…</option><option value="group">A group…</option><option value="private">Only me</option></select><label className="chip"><input type="checkbox" style={{ width: "auto" }} checked={permanent} onChange={(e) => setPermanent(e.target.checked)} /> Keep as memory (no 24h expiry)</label><button className="btn">Share</button></div>
+        {aud === "selected" && <div className="row" role="group" aria-label="Choose friends">{(friends ?? []).filter((f) => f.status === "accepted").map((f) => <label key={f.other.id} className="chip"><input type="checkbox" style={{ width: "auto" }} checked={picked.includes(f.other.id)} onChange={(e) => setPicked(e.target.checked ? [...picked, f.other.id] : picked.filter((x) => x !== f.other.id))} />{f.other.display_name}</label>)}</div>}
+        {aud === "group" && <select aria-label="Group" value={groupId} onChange={(e) => setGroupId(e.target.value)}><option value="">Choose a group…</option>{groups.map((g) => <option key={g.id} value={g.id}>{g.title}</option>)}</select>}
+        <div className="row"><input placeholder="🎵 Music (song – artist)" value={music.title} onChange={(e) => setMusic({ ...music, title: e.target.value })} maxLength={100} aria-label="Music title" style={{ flex: 1, minWidth: 160 }} /><input placeholder="Link (optional)" value={music.url} onChange={(e) => setMusic({ ...music, url: e.target.value })} aria-label="Music link" style={{ flex: 1, minWidth: 140 }} /><button type="button" className={`btn ${loc ? "" : "ghost"}`} onClick={shareLoc} aria-pressed={!!loc}>📍 {loc ? "Location on" : "Add location"}</button></div>
       </form>
       <div className="grid">{items.map((m) => (
         <article key={m.id} className="glass card">
           <div className="row"><b>{names.get(m.author_id) ?? "Friend"}</b><span className="muted">{new Date(m.created_at).toLocaleString()}</span>{m.audience === "private" && <span className="chip">🔒 only me</span>}</div>
-          {m.media_path && <Media path={m.media_path} alt={m.body ?? "Moment"} video={m.kind === "video"} />}{m.mood && <p>{m.mood}</p>}{m.body && <p>{m.body}</p>}
+          {m.media_path && <Media path={m.media_path} alt={m.body ?? "Moment"} video={m.kind === "video"} />}{m.mood && <p>{m.mood}</p>}{(m as Moment & { meta?: { title?: string; url?: string; lat?: number; lng?: number } }).meta?.title && <p>🎵 {(m as Moment & { meta: { title: string; url?: string } }).meta.url ? <a href={(m as Moment & { meta: { url: string } }).meta.url} target="_blank" rel="noopener noreferrer nofollow" style={{ textDecoration: "underline" }}>{(m as Moment & { meta: { title: string } }).meta.title}</a> : (m as Moment & { meta: { title: string } }).meta.title}</p>}{(m as Moment & { meta?: { lat?: number; lng?: number } }).meta?.lat !== undefined && <a className="chip" href={`https://www.openstreetmap.org/?mlat=${(m as Moment & { meta: { lat: number } }).meta.lat}&mlon=${(m as Moment & { meta: { lng: number } }).meta.lng}#map=15/${(m as Moment & { meta: { lat: number } }).meta.lat}/${(m as Moment & { meta: { lng: number } }).meta.lng}`} target="_blank" rel="noopener noreferrer">📍 Location</a>}{m.body && <p>{m.body}</p>}
         </article>))}
         {!items.length && <p className="muted">Nothing yet — share the first moment.</p>}</div>
       {viewing && <StoryViewer stories={items.filter((m) => m.author_id === viewing && (!m.expires_at || Date.parse(m.expires_at) > Date.now())).reverse() as Story[]} name={names.get(viewing) ?? "Friend"} meId={me!.id} reduced={prefs.reducedMotion} onClose={() => { setViewing(null); load(); }} onMute={() => { const n = [...muted, viewing]; setMuted(n); localStorage.setItem("ocean.mutedMoments", JSON.stringify(n)); }} />}</>}

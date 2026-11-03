@@ -2,7 +2,7 @@ import { z } from "zod";
 import { authed } from "@/modules/progression/http";
 import { adminClient } from "@/lib/supabase/server";
 import { record } from "@/modules/progression/service";
-import { limit, notify } from "@/modules/notify/service";
+import { isBlocked, limit, notify } from "@/modules/notify/service";
 import { verifyStoredMedia } from "@/modules/media/verify";
 
 const Body = z.object({
@@ -16,6 +16,8 @@ const Body = z.object({
   permanent: z.boolean().default(false),
   meta: z.object({ cover: z.string().max(300).optional(), url: z.string().url().max(300).optional(), title: z.string().max(100).optional(), lat: z.number().optional(), lng: z.number().optional(), label: z.string().max(80).optional() }).optional(),
   selected: z.array(z.string().uuid()).max(100).default([]),
+  /** Share with every member of a group you belong to (membership is snapshotted at post time). */
+  groupId: z.string().uuid().optional(),
 });
 
 export const POST = (req: Request) => authed(async ({ user }) => {
@@ -40,11 +42,17 @@ export const POST = (req: Request) => authed(async ({ user }) => {
   }).select().single();
   if (error) throw error;
 
+  if (b.groupId) {
+    const { data: gm } = await db.from("conversation_members").select("user_id").eq("conversation_id", b.groupId);
+    if (!gm?.some((r) => r.user_id === user.id)) throw new Error("forbidden");
+    const ids: string[] = []; for (const r of gm) if (r.user_id !== user.id && !(await isBlocked(user.id, r.user_id))) ids.push(r.user_id);
+    b.selected = ids; b.audience = "selected";
+  }
   if (b.audience === "selected" && b.selected.length) {
     // Only people the author is actually friends with may be added to an audience.
     const { data: fr } = await db.from("friendships").select("user_a,user_b").eq("status", "accepted").or(`user_a.eq.${user.id},user_b.eq.${user.id}`);
     const friends = new Set((fr ?? []).map((f) => (f.user_a === user.id ? f.user_b : f.user_a)));
-    const rows = b.selected.filter((id) => friends.has(id)).map((id) => ({ moment_id: m.id, user_id: id }));
+    const rows = b.selected.filter((id) => b.groupId || friends.has(id)).map((id) => ({ moment_id: m.id, user_id: id }));
     if (rows.length) await db.from("moment_audience").insert(rows);
   }
 

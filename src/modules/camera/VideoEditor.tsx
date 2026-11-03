@@ -19,7 +19,7 @@ export function VideoEditor({ clip, onDone, onBack }: { clip: Recorded; onDone: 
       if (!live) return; setDur(d); setEnd((e) => (e === 0 ? d : e)); /* never clobber a trim the user already made */ })(); return () => { live = false; }; }, [clip.url, clip.durationMs]);
   useEffect(() => { const v = vid.current; if (!v) return; v.volume = Math.min(1, volume); v.style.filter = filter; }, [volume, filter]);
   // loop within the trimmed range while previewing
-  useEffect(() => { const v = vid.current; if (!v) return; const h = () => { if (v.currentTime >= end - 0.05) v.currentTime = start; }; v.addEventListener("timeupdate", h); return () => v.removeEventListener("timeupdate", h); }, [start, end]);
+  useEffect(() => { const v = vid.current; if (!v || busy) return; /* not while exporting: it would rewind the recording */ const h = () => { if (v.currentTime >= end - 0.05) v.currentTime = start; }; v.addEventListener("timeupdate", h); return () => v.removeEventListener("timeupdate", h); }, [start, end, busy]);
 
   const seek = (t: number) => { const v = vid.current; if (v) { v.pause(); v.currentTime = t; } };
 

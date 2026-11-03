@@ -35,14 +35,21 @@ No Supabase yet? `/lab` (the Pet Lab) works without any backend.
 
 ## Status
 
-See `docs/SETUP.md` for setup, deployment, the privacy model, and which features need external services.
+See `docs/SETUP.md` for setup, deployment, optional services, security notes and the privacy model (the app is **not** end-to-end encrypted).
 
-**Verified in this repo:** 44 unit tests (progression, security helpers, upload policy, notification rules, camera composition/adjustments, style sanitising); both migrations apply on Postgres 16 and RLS behaviour was tested (moment audiences, 24h expiry, blocks, viewer lists, role escalation, saved-item restrictions, double reveal, write protection); production build; Chromium checks of the 3D ocean background, the 10 pet species, and the photo editor (brightness/filters/crop/draw/undo/export change real pixels, no upscaling).
+### Verified (automated)
+- **97 unit tests**: progression, security helpers, upload policy, notification rules, group permissions, saved filters, media helpers, call logic (quality, TURN credentials), push payloads, sticker logic, camera composition/adjustments/recording plan, face geometry, chat-style sanitising.
+- **Database (Postgres 16, Supabase stubs, migrations 0001–0005):** RLS for moments/audiences/expiry/blocks, sticker consent, group ownership, write-protected progression, call membership and private realtime-channel authorisation, atomic call join/leave.
+- **Real browser (Chromium):** two-peer WebRTC call with audio/video both ways, mute/camera/screen-share signalling, quality indicator and leave handling; resumable (TUS) upload with pause/resume against a local TUS server; drag-and-drop/queue/cancel/retry; photo editor; MediaPipe segmentation and face tracking on a real portrait; photo and video capture, trim/filter/mute export; service-worker push handler and offline fallback; CSP sweep across all feature pages on a production build; web-push encryption/VAPID verified by decrypting at a mock push endpoint.
 
-**Implemented but not yet exercised end-to-end against a live Supabase project:** auth + password reset, profiles, friend requests/removal/blocking, invite links, realtime chat (reply, edit, delete, forward, reactions, receipts, typing, search, pagination, pins, private saves, retry), notifications (in-app + foreground browser), per-chat customization, Moments (24h stories, audiences, viewer, reactions, private replies, report), camera → edit → share, pets, account export/delete.
+### Implemented but NOT exercised against a live Supabase project
+Auth and password reset, realtime chat, notifications, invites, Moments, stickers, groups, Saved, gallery, calls' signalling over Supabase Realtime, TUS against Supabase Storage, and the bucket policies. Run the app against a real project and click through before relying on any of it. No Docker daemon was available here, so there was no local Supabase stack.
 
-**Added since:** Saved page (search, type filters, collections, notes, links, validated file upload, sort) and Group admin (settings, announcement, admins-only posting, roles, add/remove, ownership transfer, invites, leave/delete). Permission rules live in `src/lib/groups/permissions.ts` and are enforced by `/api/groups/[id]`; migration `0003_group_admin.sql` adds the columns and a one-owner-per-group index. These screens are type-checked and built but not yet clicked through against live Supabase data.
+### Known limits and honest caveats
+- Camera effects, face swap and "Surprise me" wallpapers are on-device image processing (the wallpapers are procedurally drawn, **not** AI-generated). Face swap is a similarity-aligned, feathered blend — a fun effect, not photorealistic.
+- Video export re-records in real time (a 10 s clip takes ~10 s). Output is never upscaled, and quality labels reflect real pixels (a 4K sensor with effects on is recorded and labelled ≤720p).
+- Calls: mesh topology (≤6 people); TURN recommended for strict networks.
+- Push delivery to real devices, Tenor/Giphy responses, iOS-specific camera behaviour and 360° capture were not testable here (360° is not implemented).
 
-**Media:** drag-and-drop, paste and 📎 uploads with a queue (2 at a time, per-file progress, cancel, retry), optional photo optimization with an "Original quality" switch, video/audio/file messages, a per-conversation gallery (photos, videos, audio, files; lazy thumbnails, fullscreen viewer, filename search, pagination) and a storage meter. Migration `0004_media_messages.sql` adds the message kinds. The server re-checks every media message against the stored object (type, size, folder) and takes name/size from storage, not the client. Browser-tested with mocked network (see `/lab/uploads`); not yet run against live Supabase Storage.
-
-**Not built:** voice/video rooms (LiveKit), background push, GIF search, resumable (TUS) uploads, download progress bars, video recording/editing, MediaPipe effects (segmentation, AR masks, face swap), custom sticker packs, polls UI beyond the basic poll, location sharing, i18n. A mobile-specific navigation exists (bottom bar) but swipe gestures are not implemented.
+### Not built
+Pet racing / dance battle / treasure hunt and other mini-games beyond Truth or Dare, Would You Rather, trivia and polls; collaborative drawing and doodles; group pets (pets stay per-friendship by design); custom emoji as a separate system (use sticker packs); an SFU for large calls; native iOS/Android apps; i18n; message/file end-to-end encryption.
