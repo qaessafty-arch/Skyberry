@@ -12,6 +12,7 @@ export default function CameraPage() {
   const me = useMe(); const { friends } = useFriends(me); const [prefs] = usePrefs();
   const [shot, setShot] = useState<Shot | null>(null);
   const [target, setTarget] = useState<string>("moment:friends");
+  const [keep, setKeep] = useState(false);
   const [busy, setBusy] = useState(false); const [done, setDone] = useState("");
   const chats = friends?.filter((f) => f.status === "accepted" && f.conversationId) ?? [];
 
@@ -21,7 +22,7 @@ export default function CameraPage() {
       const path = await uploadMedia(shot.blob);
       const [kind, id] = target.split(":");
       if (kind === "chat") await api("/api/messages", "POST", { conversationId: id, kind: "image", mediaPath: path, body: "📷" });
-      else if (kind === "moment") await api("/api/moments", "POST", { kind: "photo", mediaPath: path, audience: id });
+      else if (kind === "moment") await api("/api/moments", "POST", { kind: "photo", mediaPath: path, audience: id, permanent: keep });
       else if (kind === "saved") { const { supabase } = await import("@/lib/supabase/browser"); await supabase().from("memories").insert({ owner_id: me!.id, media_path: path, title: "Saved from camera" }); }
       setDone("Shared! 🌊"); setShot(null);
     } catch { setDone("Couldn't share. Try again."); } finally { setBusy(false); }
@@ -36,10 +37,11 @@ export default function CameraPage() {
         <img src={shot.url} alt="Preview" style={{ width: "100%", borderRadius: 18 }} />
         <label>Send to
           <select value={target} onChange={(e) => setTarget(e.target.value)}>
-            <optgroup label="Moments"><option value="moment:friends">All friends</option><option value="moment:private">Only me (daily camera roll)</option></optgroup>
+            <optgroup label="Moments (24h story)"><option value="moment:friends">All friends</option><option value="moment:close">Close friends</option><option value="moment:private">Only me (daily camera roll)</option></optgroup>
             <optgroup label="Chats">{chats.map((f) => <option key={f.conversationId} value={`chat:${f.conversationId}`}>{f.other.display_name}</option>)}</optgroup>
             <optgroup label="Memories"><option value="saved:me">Save to memories</option></optgroup>
           </select></label>
+        {target.startsWith("moment:") && target !== "moment:private" && <label className="row"><input type="checkbox" style={{ width: "auto" }} checked={keep} onChange={(e) => setKeep(e.target.checked)} /> Keep as a permanent memory (otherwise disappears after 24h)</label>}
         <div className="row"><button className="btn ghost" onClick={() => setShot(null)}>← Back</button><button className="btn" disabled={busy} onClick={share}>{busy ? "Sharing…" : "Share"}</button></div>
       </div>)}
   </>);

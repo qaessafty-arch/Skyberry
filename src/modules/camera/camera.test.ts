@@ -31,3 +31,44 @@ describe("warp", () => {
     expect(Array.from(b.data)).not.toEqual(Array.from(a.data));
   });
 });
+
+import { applyAdjust, NEUTRAL, qualityLabel, hist, commit, undo, redo } from "./adjust";
+describe("adjustments", () => {
+  const px = (r: number, g: number, b: number) => ({ width: 1, height: 1, data: new Uint8ClampedArray([r, g, b, 255]) });
+  it("neutral is a no-op", () => expect(applyAdjust(px(10, 20, 30), NEUTRAL).data[0]).toBe(10));
+  it("brightness raises, contrast spreads, saturation 0 → grey", () => {
+    expect(applyAdjust(px(100, 100, 100), { ...NEUTRAL, brightness: 0.5 }).data[0]).toBeGreaterThan(100);
+    expect(applyAdjust(px(200, 200, 200), { ...NEUTRAL, contrast: 0.5 }).data[0]).toBeGreaterThan(200);
+    const g = applyAdjust(px(255, 0, 0), { ...NEUTRAL, saturation: -1 }).data;
+    expect(g[0]).toBe(g[1]); expect(g[1]).toBe(g[2]);
+  });
+  it("shadows lift only dark pixels; highlights lower only bright ones", () => {
+    expect(applyAdjust(px(30, 30, 30), { ...NEUTRAL, shadows: 1 }).data[0]).toBeGreaterThan(30);
+    expect(applyAdjust(px(240, 240, 240), { ...NEUTRAL, shadows: 1 }).data[0]).toBe(240);
+    expect(applyAdjust(px(240, 240, 240), { ...NEUTRAL, highlights: -1 }).data[0]).toBeLessThan(240);
+  });
+  it("stays within 0..255", () => expect(applyAdjust(px(250, 250, 250), { ...NEUTRAL, brightness: 1, contrast: 1 }).data[0]).toBe(255));
+});
+describe("honest quality label", () => {
+  it("labels by real pixels only", () => {
+    expect(qualityLabel(3840, 2160)).toBe("4K"); expect(qualityLabel(2160, 3840)).toBe("4K");
+    expect(qualityLabel(1920, 1080)).toBe("1080p"); expect(qualityLabel(1280, 720)).toBe("HD"); expect(qualityLabel(640, 480)).toBe("SD");
+    expect(qualityLabel(3000, 1500)).not.toBe("4K");
+  });
+});
+describe("undo/redo", () => {
+  it("round-trips and clears redo on new edits", () => {
+    let h = hist(0); h = commit(h, 1); h = commit(h, 2);
+    h = undo(h); expect(h.present).toBe(1); h = redo(h); expect(h.present).toBe(2);
+    h = undo(h); h = commit(h, 9); expect(h.future).toEqual([]); expect(undo(undo(undo(h))).present).toBe(0);
+  });
+});
+
+import { sanitizeStyle, DEFAULT_STYLE } from "../social/chatStyle";
+describe("chat style sanitising", () => {
+  it("falls back on garbage and clamps ranges", () => {
+    expect(sanitizeStyle(null)).toEqual(DEFAULT_STYLE);
+    const s = sanitizeStyle({ bubble: "red;background:url(x)" as never, font: 999, radius: -5, bg: "evil" as never });
+    expect(s.bubble).toBe(DEFAULT_STYLE.bubble); expect(s.font).toBe(22); expect(s.radius).toBe(4); expect(s.bg).toBe("none");
+  });
+});

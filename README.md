@@ -33,11 +33,12 @@ No Supabase yet? `/lab` (the Pet Lab) works without any backend.
 - 2 missed days are forgiven; broken streaks restore for free within 7 days (once per 30). Evolution is based on longest streak and never regresses. No rankings; pets never die or get sad.
 - Days roll over in the friendship's time zone.
 
-## Status — what's real and what isn't
-**Working (verified):** progression engine + 29 unit tests; migration applies cleanly and RLS behaves as designed (tested on Postgres 16 with Supabase stubs); production build; 10 procedural 3D species with moods, personalities, accessories, 5 evolution stages, low-power / reduced-motion modes (rendered and checked in Chromium).
+## Status
 
-**Written but not exercised end-to-end** (needs a real Supabase project + two accounts): auth, realtime chat, moments, double reveal, camera → share, pet care/customization, rooms.
+See `docs/SETUP.md` for setup, deployment, the privacy model, and which features need external services.
 
-**Not built yet:** voice/video rooms (needs WebRTC/SFU), face swap, 360° capture, animated 3D AR face effects, GIF search, drawing/doodles, most mini-games (Would You Rather, polls, secret and surprise messages exist; Truth or Dare, trivia, pet racing, etc. do not), pet group chats (pets are per-friendship), custom-creature editor beyond color/accessories, push notifications/reminders, collaborative decorating of pet homes with items.
+**Verified in this repo:** 44 unit tests (progression, security helpers, upload policy, notification rules, camera composition/adjustments, style sanitising); both migrations apply on Postgres 16 and RLS behaviour was tested (moment audiences, 24h expiry, blocks, viewer lists, role escalation, saved-item restrictions, double reveal, write protection); production build; Chromium checks of the 3D ocean background, the 10 pet species, and the photo editor (brightness/filters/crop/draw/undo/export change real pixels, no upscaling).
 
-**Honest caveats:** pets are procedurally modelled in code (no GLB/Blender assets, so no skeletal-mesh rigs — animation is a hierarchical rig); face effects are a 2D lens warp (uses the browser FaceDetector where available, otherwise center-weighted); composition tips need that API (Chromium).
+**Implemented but not yet exercised end-to-end against a live Supabase project:** auth + password reset, profiles, friend requests/removal/blocking, invite links, realtime chat (reply, edit, delete, forward, reactions, receipts, typing, search, pagination, pins, private saves, retry), notifications (in-app + foreground browser), per-chat customization, Moments (24h stories, audiences, viewer, reactions, private replies, report), camera → edit → share, pets, account export/delete.
+
+**Not built:** voice/video rooms (LiveKit), background push, GIF search, resumable uploads, video recording/editing, MediaPipe effects (segmentation, AR masks, face swap), custom sticker packs, polls UI beyond the basic poll, Saved page collections/search UI (API + tables exist), group admin UI (roles exist in the DB), media gallery, drag-and-drop uploads, location sharing, i18n. A mobile-specific navigation exists (bottom bar) but swipe gestures are not implemented.

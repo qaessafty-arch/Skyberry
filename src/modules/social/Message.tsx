@@ -2,13 +2,14 @@
 import { useEffect, useState } from "react";
 import { signedUrl } from "@/lib/data";
 
-export interface Msg { id: string; sender_id: string; kind: string; body: string | null; media_path: string | null; meta: Record<string, unknown>; created_at: string }
+export interface Msg { id: string; conversation_id?: string; sender_id: string; kind: string; body: string | null; media_path: string | null; meta: Record<string, unknown>; created_at: string; reply_to?: string | null; forwarded_from?: string | null; edited_at?: string | null; deleted_at?: string | null }
 export interface Reaction { message_id: string; user_id: string; emoji: string }
 
 export function MessageBody({ m, me, reactions, onVote }: { m: Msg; me: string; reactions: Reaction[]; onVote: (i: number) => void }) {
   const [url, setUrl] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   useEffect(() => { if (m.media_path) signedUrl(m.media_path).then(setUrl); }, [m.media_path]);
+  if (m.deleted_at) return <em className="muted">🚫 This message was deleted</em>;
   if (m.kind === "image") return url ? <img src={url} alt={m.body ?? "Shared photo"} style={{ maxWidth: "100%", borderRadius: 14 }} /> : <span className="muted">Loading photo…</span>;
   if (m.kind === "sticker") return <span style={{ fontSize: "3rem" }} role="img" aria-label="sticker">{m.body}</span>;
   if (m.kind === "secret") return open ? <span>{m.body}</span> : <button className="btn ghost" onClick={() => setOpen(true)}>🔒 Tap to reveal</button>;
@@ -21,5 +22,10 @@ export function MessageBody({ m, me, reactions, onVote }: { m: Msg; me: string; 
         return <button key={i} className={`btn ${mine ? "" : "ghost"}`} style={{ display: "flex", width: "100%", justifyContent: "space-between", marginTop: 6 }} onClick={() => onVote(i)}><span>{o}</span><span>{n || ""}</span></button>; })}
     </div>);
   }
-  return <span>{m.body}</span>;
+  return <span style={{ whiteSpace: "pre-wrap" }}>{linkify(m.body ?? "")}</span>;
+}
+
+/** Renders URLs as safe links; everything else stays plain text (React escapes it — no HTML injection). */
+function linkify(t: string) {
+  return t.split(/(https?:\/\/[^\s<]+)/g).map((part, i) => /^https?:\/\//.test(part) ? <a key={i} href={part} target="_blank" rel="noopener noreferrer nofollow" style={{ textDecoration: "underline" }}>{part}</a> : part);
 }

@@ -9,7 +9,7 @@ export async function authed<T>(fn: (ctx: NonNullable<Awaited<ReturnType<typeof 
     return NextResponse.json(await fn(ctx));
   } catch (e) {
     const msg = e instanceof Error ? e.message : "error";
-    const status = msg === "forbidden" || msg === "not_a_member" ? 403 : msg === "bad_request" ? 400 : 500;
+    const status = msg === "rate_limited" ? 429 : msg === "forbidden" || msg === "not_a_member" ? 403 : msg === "bad_request" ? 400 : 500;
     return NextResponse.json({ error: msg }, { status });
   }
 }

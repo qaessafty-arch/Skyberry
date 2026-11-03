@@ -20,6 +20,16 @@ export const POST = (req: Request) => authed(async ({ user }) => {
   return { friendship: data };
 });
 
+/** Reject a pending request, cancel your own, or remove an accepted friend (cascades the DM, pet and progress). */
+export const DELETE = (req: Request) => authed(async ({ user }) => {
+  const p = Accept.safeParse(await req.json()); if (!p.success) throw new Error("bad_request");
+  const db = adminClient();
+  const { data: f } = await db.from("friendships").select("*").eq("id", p.data.friendshipId).single();
+  if (!f || ![f.user_a, f.user_b].includes(user.id)) throw new Error("forbidden");
+  await db.from("friendships").delete().eq("id", f.id);
+  return { ok: true };
+});
+
 /** Accept: creates the DM, progress row, and the shared starter pet atomically-ish on the server. */
 export const PUT = (req: Request) => authed(async ({ user }) => {
   const p = Accept.safeParse(await req.json());

@@ -2,6 +2,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ASPECTS, cropFor, guidance, groupFraming, goldenLines, thirdLines, type Aspect, type FaceBox } from "./compose";
 import { warpImage } from "./warp";
+import { Editor } from "./Editor";
+import { qualityLabel } from "./adjust";
 
 export type CameraMode = "quick" | "selfie" | "funny" | "portrait" | "cinematic" | "daily" | "group" | "handsfree" | "360";
 const MODES: Record<CameraMode, { label: string; aspect: Aspect; facing: "user" | "environment"; filter: string; warp: number; timer: number; grid: Grid }> = {
@@ -127,7 +129,7 @@ export function CameraStudio({ onDone, reducedMotion }: { onDone: (shot: Shot) =
     if (m.warp) { const f = faceFocus.current ?? { x: 0.5, y: 0.45 }; const w = warpImage(ctx.getImageData(0, 0, c.width, c.height), f.x * c.width, f.y * c.height, c.width * 0.32, m.warp * intensity); ctx.putImageData(new ImageData(w.data as unknown as Uint8ClampedArray<ArrayBuffer>, c.width, c.height), 0, 0); }
     setScreenFlash(false);
     const blob = await new Promise<Blob>((res) => c.toBlob((b) => res(b!), "image/jpeg", 0.92));
-    setShot({ blob, url: URL.createObjectURL(blob), w: c.width, h: c.height }); setStickers([]);
+    setShot({ blob, url: URL.createObjectURL(blob), w: c.width, h: c.height });
   }, [timer, caps, aspect, autoFrame, zoom, m, facing, intensity, exposure]);
 
   // hands-free: capture when the user says "cheese" if speech recognition exists; otherwise a timer does the job
@@ -139,28 +141,8 @@ export function CameraStudio({ onDone, reducedMotion }: { onDone: (shot: Shot) =
     try { r.start(); } catch { /* already started */ } return () => { try { r.stop(); } catch { /* ignore */ } };
   }, [mode, capture]);
 
-  // ── edit step ──
-  async function finish() {
-    if (!shot) return;
-    if (!stickers.length) return onDone(shot);
-    const img = await createImageBitmap(shot.blob); const c = document.createElement("canvas"); c.width = img.width; c.height = img.height;
-    const ctx = c.getContext("2d")!; ctx.drawImage(img, 0, 0); ctx.font = `${Math.round(c.width / 8)}px serif`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-    stickers.forEach((s) => ctx.fillText(s.s, s.x * c.width, s.y * c.height));
-    const blob = await new Promise<Blob>((res) => c.toBlob((b) => res(b!), "image/jpeg", 0.92)); onDone({ blob, url: URL.createObjectURL(blob), w: c.width, h: c.height });
-  }
-
   const row = layout === "bottom";
-  if (shot) return (
-    <div className="glass card" style={{ display: "grid", gap: 12, maxWidth: 560 }}>
-      <h2>Edit</h2>
-      <div style={{ position: "relative" }} onClick={(e) => { if (!pick) return; const r = e.currentTarget.getBoundingClientRect(); setStickers([...stickers, { s: pick, x: (e.clientX - r.left) / r.width, y: (e.clientY - r.top) / r.height }]); }}>
-        <img src={shot.url} alt="Captured" style={{ width: "100%", borderRadius: 18, display: "block" }} />
-        {stickers.map((s, i) => <span key={i} style={{ position: "absolute", left: `${s.x * 100}%`, top: `${s.y * 100}%`, transform: "translate(-50%,-50%)", fontSize: "2.2rem" }}>{s.s}</span>)}
-      </div>
-      <div className="row" role="group" aria-label="Stickers">{STICKERS.map((s) => <button key={s} className={`btn ${pick === s ? "" : "ghost"}`} onClick={() => setPick(pick === s ? null : s)} aria-pressed={pick === s}>{s}</button>)}</div>
-      <p className="muted">{pick ? "Tap the photo to place it." : "Pick a sticker, then tap the photo."} {res && `Captured at ${shot.w}×${shot.h}.`}</p>
-      <div className="row"><button className="btn ghost" onClick={() => { URL.revokeObjectURL(shot.url); setShot(null); }}>Retake</button><button className="btn" onClick={finish}>Choose audience →</button></div>
-    </div>);
+  if (shot) return <Editor shot={shot} onBack={() => { URL.revokeObjectURL(shot.url); setShot(null); }} onDone={onDone} />;
 
   return (
     <div className={`glass card ${reducedMotion ? "reduced" : ""}`} style={{ display: "grid", gap: 12, maxWidth: layout === "right" ? 900 : 560 }}>
@@ -188,7 +170,7 @@ export function CameraStudio({ onDone, reducedMotion }: { onDone: (shot: Shot) =
             <button className="btn ghost" onClick={() => setFacing(facing === "user" ? "environment" : "user")}>🔄 Flip</button>
             <button className={`btn ${autoFrame ? "" : "ghost"}`} onClick={() => setAutoFrame(!autoFrame)} aria-pressed={autoFrame} title={window.FaceDetector ? "Follow the subject" : "Needs a browser with face detection"}>🎯 Auto-frame</button>
             <button className="btn ghost" onClick={() => setLayout(layout === "bottom" ? "right" : "bottom")}>↔ Layout</button></div>
-          {res && <span className="muted">{res}{!window.FaceDetector && " · composition tips unavailable in this browser"}</span>}
+          {res && <span className="muted">{res} · {qualityLabel(...(res.split("×").map(Number) as [number, number]))} (actual sensor output){!window.FaceDetector && " · composition tips unavailable in this browser"}</span>}
         </div>
       </div>
       <div className="row" style={{ justifyContent: "center" }}>

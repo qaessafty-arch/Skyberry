@@ -11,6 +11,11 @@ export default function Login() {
   const [busy, setBusy] = useState(false);
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement>) => setF({ ...f, [k]: e.target.value });
 
+  async function forgot() {
+    if (!f.email) return setErr("Enter your email first.");
+    const { error } = await supabase().auth.resetPasswordForEmail(f.email, { redirectTo: `${location.origin}/reset` });
+    setErr(error ? error.message : "If that email exists, a reset link is on its way.");
+  }
   async function submit(e: React.FormEvent) {
     e.preventDefault(); setBusy(true); setErr("");
     const sb = supabase();
@@ -25,7 +30,8 @@ export default function Login() {
       const { error } = await sb.auth.signInWithPassword({ email: f.email, password: f.password });
       if (error) { setErr(error.message); setBusy(false); return; }
     }
-    r.replace("/chats"); r.refresh();
+    const next = new URLSearchParams(location.search).get("next");
+    r.replace(next && next.startsWith("/") && !next.startsWith("//") ? next : "/chats"); r.refresh();
   }
   return (
     <main style={{ minHeight: "100dvh", display: "grid", placeItems: "center", padding: 20 }}>
@@ -36,6 +42,7 @@ export default function Login() {
         <input type="password" required minLength={8} placeholder="Password" value={f.password} onChange={set("password")} aria-label="Password" />
         {err && <div role="alert" style={{ color: "#d6336c" }}>{err}</div>}
         <button className="btn" disabled={busy}>{mode === "in" ? "Sign in" : "Create account"}</button>
+        {mode === "in" && <button type="button" className="btn ghost" onClick={forgot}>Forgot password?</button>}
         <button type="button" className="btn ghost" onClick={() => setMode(mode === "in" ? "up" : "in")}>{mode === "in" ? "New here? Create an account" : "Have an account? Sign in"}</button>
       </form>
     </main>

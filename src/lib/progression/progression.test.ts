@@ -130,3 +130,14 @@ describe("engine", () => {
     expect(f.unlocked).toContain("ocean-friends");
   });
 });
+
+import { backgroundMode } from "../usePrefs";
+describe("3D background policy", () => {
+  it("respects off, reduced motion, and weak devices", () => {
+    expect(backgroundMode({ bg: "off", reducedMotion: false, lowPower: false })).toBe("off");
+    expect(backgroundMode({ bg: "on", reducedMotion: true, lowPower: false })).toBe("lite");
+    expect(backgroundMode({ bg: "auto", reducedMotion: false, lowPower: true })).toBe("lite");
+    expect(backgroundMode({ bg: "on", reducedMotion: false, lowPower: true })).toBe("full");
+    expect(backgroundMode({ bg: "auto", reducedMotion: false, lowPower: false })).toBe("full");
+  });
+});

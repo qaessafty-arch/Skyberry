@@ -5,12 +5,31 @@ import { api, uploadMedia, useFriends, useMe } from "@/lib/data";
 import { dayKey } from "@/lib/progression/time";
 import { Media } from "@/modules/social/Media";
 import { MOODS, promptForDay } from "@/modules/social/prompts";
+import { StoryViewer, type Story } from "@/modules/social/StoryViewer";
+import { usePrefs } from "@/lib/usePrefs";
 
-interface Moment { id: string; author_id: string; kind: string; body: string | null; media_path: string | null; mood: string | null; prompt_id: string | null; audience: string; created_at: string }
+interface Moment { id: string; author_id: string; kind: string; body: string | null; media_path: string | null; mood: string | null; prompt_id: string | null; audience: string; created_at: string; expires_at: string | null }
 interface Reveal { friendship_id: string; day: string; user_id: string; media_path: string }
 
+function StoryRow({ items, me, names, seen, muted, onOpen }: { items: Moment[]; me?: string; names: Map<string, string>; seen: Set<string>; muted: string[]; onOpen: (id: string) => void }) {
+  const live = items.filter((m) => !m.expires_at || Date.parse(m.expires_at) > Date.now());
+  const authors = [...new Set(live.map((m) => m.author_id))].filter((a) => !muted.includes(a));
+  if (!authors.length) return null;
+  return (
+    <div className="row" style={{ margin: "12px 0", overflowX: "auto", flexWrap: "nowrap" }} aria-label="Stories">
+      {authors.map((a) => { const unseen = a !== me && live.some((m) => m.author_id === a && !seen.has(m.id)); return (
+        <button key={a} onClick={() => onOpen(a)} style={{ background: "none", border: 0, cursor: "pointer", textAlign: "center", color: "inherit" }} aria-label={`${names.get(a) ?? "Friend"}'s moments${unseen ? ", new" : ""}`}>
+          <div style={{ width: 62, height: 62, borderRadius: 99, padding: 3, background: unseen ? "linear-gradient(135deg,var(--blue),var(--cyan))" : "var(--line)", display: "grid", placeItems: "center" }}>
+            <div style={{ width: "100%", height: "100%", borderRadius: 99, background: "var(--bg)", display: "grid", placeItems: "center", fontWeight: 700 }}>{(names.get(a) ?? "?")[0]}</div></div>
+          <div style={{ fontSize: ".75rem" }}>{names.get(a)}</div></button>); })}
+    </div>);
+}
+
 export default function Moments() {
-  const me = useMe(); const { friends } = useFriends(me);
+  const me = useMe(); const { friends } = useFriends(me); const [prefs] = usePrefs();
+  const [viewing, setViewing] = useState<string | null>(null); const [seen, setSeen] = useState<Set<string>>(new Set());
+  const [muted, setMuted] = useState<string[]>(() => { try { return JSON.parse(localStorage.getItem("ocean.mutedMoments") ?? "[]"); } catch { return []; } });
+  const [permanent, setPermanent] = useState(false);
   const [tab, setTab] = useState<"feed" | "reveal" | "roll" | "recap">("feed");
   const [items, setItems] = useState<Moment[]>([]); const [reveals, setReveals] = useState<Reveal[]>([]);
   const [text, setText] = useState(""); const [mood, setMood] = useState(""); const [aud, setAud] = useState("friends"); const [file, setFile] = useState<File | null>(null); const [note, setNote] = useState("");
@@ -21,13 +40,14 @@ export default function Moments() {
     const sb = supabase();
     const { data } = await sb.from("moments").select("*").order("created_at", { ascending: false }).limit(100); setItems((data as Moment[]) ?? []);
     const { data: r } = await sb.from("double_reveals").select("*").eq("day", today); setReveals((r as Reveal[]) ?? []);
-  }, [today]);
+    const { data: v } = await sb.from("moment_views").select("moment_id").eq("viewer_id", me?.id ?? ""); setSeen(new Set((v ?? []).map((x) => x.moment_id)));
+  }, [today, me?.id]);
   useEffect(() => { if (me) load(); }, [me, load]);
 
   async function post(e: React.FormEvent) {
     e.preventDefault(); if (!text.trim() && !file && !mood) return;
     const mediaPath = file ? await uploadMedia(file, file.name.split(".").pop() ?? "jpg") : undefined;
-    const r = await api("/api/moments", "POST", { kind: file ? "photo" : mood && !text ? "mood" : "text", body: text || undefined, mood: mood || undefined, mediaPath, audience: aud, promptId: prompt.id });
+    const r = await api("/api/moments", "POST", { kind: file ? "photo" : mood && !text ? "mood" : "text", body: text || undefined, mood: mood || undefined, mediaPath, audience: aud, permanent, promptId: prompt.id });
     setNote(r.error ? "Couldn't post." : "Shared ✨"); setText(""); setMood(""); setFile(null); load();
   }
   async function submitReveal(fid: string, f: File) {
@@ -45,18 +65,20 @@ export default function Moments() {
     {note && <p role="status" className="chip" style={{ marginTop: 10 }}>{note}</p>}
 
     {tab === "feed" && <>
+      <StoryRow items={items} me={me?.id} names={names} seen={seen} muted={muted} onOpen={setViewing} />
       <form onSubmit={post} className="glass card" style={{ display: "grid", gap: 8, margin: "12px 0" }}>
         <textarea rows={2} placeholder="What's happening?" value={text} onChange={(e) => setText(e.target.value)} aria-label="Moment text" />
         <div className="row">{MOODS.map((m) => <button type="button" key={m} className={`chip`} style={{ border: m === mood ? "2px solid var(--blue)" : "2px solid transparent", cursor: "pointer" }} onClick={() => setMood(m === mood ? "" : m)}>{m}</button>)}</div>
         <div className="row"><label className="btn ghost" style={{ cursor: "pointer" }}>📎 Photo<input type="file" accept="image/*" hidden onChange={(e) => setFile(e.target.files?.[0] ?? null)} /></label>{file && <span className="muted">{file.name}</span>}
-          <select value={aud} onChange={(e) => setAud(e.target.value)} aria-label="Audience" style={{ width: "auto" }}><option value="friends">All friends</option><option value="private">Only me</option></select><button className="btn">Share</button></div>
+          <select value={aud} onChange={(e) => setAud(e.target.value)} aria-label="Audience" style={{ width: "auto" }}><option value="friends">All friends</option><option value="close">Close friends</option><option value="private">Only me</option></select><label className="chip"><input type="checkbox" style={{ width: "auto" }} checked={permanent} onChange={(e) => setPermanent(e.target.checked)} /> Keep as memory (no 24h expiry)</label><button className="btn">Share</button></div>
       </form>
       <div className="grid">{items.map((m) => (
         <article key={m.id} className="glass card">
           <div className="row"><b>{names.get(m.author_id) ?? "Friend"}</b><span className="muted">{new Date(m.created_at).toLocaleString()}</span>{m.audience === "private" && <span className="chip">🔒 only me</span>}</div>
           {m.media_path && <Media path={m.media_path} alt={m.body ?? "Moment photo"} />}{m.mood && <p>{m.mood}</p>}{m.body && <p>{m.body}</p>}
         </article>))}
-        {!items.length && <p className="muted">Nothing yet — share the first moment.</p>}</div></>}
+        {!items.length && <p className="muted">Nothing yet — share the first moment.</p>}</div>
+      {viewing && <StoryViewer stories={items.filter((m) => m.author_id === viewing && (!m.expires_at || Date.parse(m.expires_at) > Date.now())).reverse() as Story[]} name={names.get(viewing) ?? "Friend"} meId={me!.id} reduced={prefs.reducedMotion} onClose={() => { setViewing(null); load(); }} onMute={() => { const n = [...muted, viewing]; setMuted(n); localStorage.setItem("ocean.mutedMoments", JSON.stringify(n)); }} />}</>}
 
     {tab === "reveal" && <div className="grid" style={{ marginTop: 12 }}>{friends?.filter((f) => f.status === "accepted").map((f) => {
       const mineR = reveals.find((r) => r.friendship_id === f.friendshipId && r.user_id === me?.id); const theirs = reveals.find((r) => r.friendship_id === f.friendshipId && r.user_id !== me?.id);
