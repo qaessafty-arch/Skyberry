@@ -3,3 +3,7 @@ node_modules
 .env*.local
 *.tsbuildinfo
 next-env.d.ts
+
+public/mediapipe
+public/models
+public/portrait.jpg

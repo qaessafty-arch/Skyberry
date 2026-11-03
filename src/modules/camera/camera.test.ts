@@ -72,3 +72,20 @@ describe("chat style sanitising", () => {
     expect(s.bubble).toBe(DEFAULT_STYLE.bubble); expect(s.font).toBe(22); expect(s.radius).toBe(4); expect(s.bg).toBe("none");
   });
 });
+
+import { recordingPlan, videoLabel, pickVideoMime } from "./recorder";
+describe("video recording plan (honest labels)", () => {
+  it("raw stream keeps native size and its true label", () => {
+    expect(recordingPlan({ effects: false, aspectMatchesSensor: true, sensor: { w: 3840, h: 2160 }, aspect: 16 / 9 })).toMatchObject({ source: "stream", width: 3840, height: 2160, label: "4K" });
+    expect(recordingPlan({ effects: false, aspectMatchesSensor: true, sensor: { w: 1280, h: 720 }, aspect: 16 / 9 }).label).toBe("720p");
+  });
+  it("effects force canvas compositing, capped — so a 4K sensor is NOT labelled 4K", () => {
+    const p = recordingPlan({ effects: true, aspectMatchesSensor: true, sensor: { w: 3840, h: 2160 }, aspect: 16 / 9 });
+    expect(p.source).toBe("canvas"); expect(p.width).toBe(1280); expect(p.label).toBe("720p"); expect(p.width % 2 + p.height % 2).toBe(0);
+  });
+  it("a non-sensor aspect uses the canvas at up to 1080p and never exceeds the sensor", () => {
+    const p = recordingPlan({ effects: false, aspectMatchesSensor: false, sensor: { w: 1280, h: 720 }, aspect: 9 / 16 });
+    expect(p.source).toBe("canvas"); expect(Math.max(p.width, p.height)).toBeLessThanOrEqual(1280); expect(p.width).toBeLessThan(p.height);
+  });
+  it("labels and mime choice", () => { expect(videoLabel(1920, 1080)).toBe("1080p"); expect(videoLabel(1080, 1920)).toBe("1080p"); expect(videoLabel(640, 480)).toBe("SD"); expect(pickVideoMime((t) => t === "video/mp4")?.ext).toBe("mp4"); expect(pickVideoMime(() => false)).toBeNull(); });
+});
