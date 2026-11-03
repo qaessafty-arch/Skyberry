@@ -13,6 +13,6 @@ export const POST = (req: Request) => authed(async ({ user }) => {
   const members = [...new Set(p.data.members.filter((m) => friends.has(m)))];
   if (!members.length) throw new Error("forbidden");
   const { data: c } = await db.from("conversations").insert({ kind: "group", title: p.data.title, created_by: user.id }).select().single();
-  await db.from("conversation_members").insert([user.id, ...members].map((id) => ({ conversation_id: c!.id, user_id: id })));
+  await db.from("conversation_members").insert([user.id, ...members].map((id) => ({ conversation_id: c!.id, user_id: id, role: id === user.id ? "owner" : "member" })));
   return { conversationId: c!.id, starterPet: pickStarterPet(c!.id) };
 });

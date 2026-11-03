@@ -64,3 +64,14 @@ export async function uploadMedia(blob: Blob, ext = "jpg"): Promise<string> {
   const { error } = await sb.storage.from("media").upload(path, blob, { contentType: blob.type || "image/jpeg" });
   if (error) throw error; return path;
 }
+
+const REASONS: Record<string, string> = { blocked_type: "That file type isn't allowed.", unsupported_type: "Unsupported file type.", too_large: "That file is too large.", empty: "That file is empty.", no_extension: "The file needs an extension.", quota_exceeded: "You're out of storage space." };
+/** Upload through the server-validated path (type, size and quota are checked BEFORE bytes move). Throws a friendly message on rejection. */
+export async function uploadValidated(file: File): Promise<{ path: string; kind: "image" | "video" | "audio" | "file" }> {
+  const r = await api<{ ok: boolean; reason?: string; path: string; token: string; kind: "image" | "video" | "audio" | "file" }>("/api/upload-url", "POST", { name: file.name, type: file.type, size: file.size });
+  if (r.error === "rate_limited") throw new Error("Slow down a little — too many uploads.");
+  if (!r.ok) throw new Error(REASONS[r.reason ?? ""] ?? "Upload not allowed.");
+  const { error } = await supabase().storage.from("media").uploadToSignedUrl(r.path, r.token, file, { contentType: file.type });
+  if (error) throw new Error("Upload failed. Please retry.");
+  return { path: r.path, kind: r.kind };
+}

@@ -2,6 +2,7 @@ import { z } from "zod";
 import { authed } from "@/modules/progression/http";
 import { adminClient } from "@/lib/supabase/server";
 import { limit } from "@/modules/notify/service";
+import { can, type Role } from "@/lib/groups/permissions";
 
 async function load(id: string, userId: string) {
   const db = adminClient();
@@ -26,7 +27,7 @@ export const PATCH = (req: Request, ctx: { params: Promise<{ id: string }> }) =>
 export const DELETE = (_req: Request, ctx: { params: Promise<{ id: string }> }) => authed(async ({ user }) => {
   limit("delete", user.id, 30);
   const { m, role, db } = await load((await ctx.params).id, user.id);
-  if (m.sender_id !== user.id && !["admin", "owner"].includes(role)) throw new Error("forbidden");
+  if (m.sender_id !== user.id && !can(role as Role, "deleteOthersMessages")) throw new Error("forbidden");
   await db.from("messages").update({ body: null, media_path: null, meta: {}, deleted_at: new Date().toISOString() }).eq("id", m.id);
   await db.from("pinned_messages").delete().eq("message_id", m.id);
   return { ok: true };

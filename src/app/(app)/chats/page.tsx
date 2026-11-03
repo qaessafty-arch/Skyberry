@@ -43,7 +43,8 @@ function Chat() {
   const [search, setSearch] = useState("");
   const [results, setResults] = useState<Msg[] | null>(null);
   const [online, setOnline] = useState(true);
-  const [groups, setGroups] = useState<{ id: string; title: string }[]>([]);
+  const [groups, setGroups] = useState<{ id: string; title: string; announcement?: string | null; only_admins_post?: boolean }[]>([]);
+  const [myRole, setMyRole] = useState<string>("member");
   const [unread, setUnread] = useState<Record<string, number>>({});
   const [style, setStyle] = useState<ChatStyle>(DEFAULT_STYLE);
   const [styling, setStyling] = useState(false);
@@ -53,11 +54,13 @@ function Chat() {
 
   const accepted = useMemo(() => friends?.filter((f) => f.status === "accepted") ?? [], [friends]);
   useEffect(() => {
-    if (me) supabase().from("conversations").select("id,title").eq("kind", "group").then(({ data }) => setGroups(data ?? []));
+    if (me) supabase().from("conversations").select("id,title,announcement,only_admins_post").eq("kind", "group").then(({ data }) => setGroups(data ?? []));
   }, [me]);
   const cid = q.get("c") ?? accepted[0]?.conversationId ?? groups[0]?.id;
   const active: Friend | undefined = accepted.find((f) => f.conversationId === cid);
   const group = groups.find((g) => g.id === cid);
+  useEffect(() => { if (!group || !me) return; supabase().from("conversation_members").select("role").eq("conversation_id", group.id).eq("user_id", me.id).maybeSingle().then(({ data }) => setMyRole(data?.role ?? "member")); }, [group, me]);
+  const locked = !!group?.only_admins_post && myRole === "member";
   const names = useMemo(() => new Map([[me?.id ?? "", "You"], ...accepted.map((f) => [f.other.id, f.other.display_name] as [string, string])]), [me, accepted]);
 
   useEffect(() => {
@@ -235,7 +238,7 @@ function Chat() {
       </aside>
       <section className="glass thread" style={styleVars(style) as React.CSSProperties}>
         {!online && <div role="status" className="chip" style={{ margin: 8, background: "#ffe3e3" }}>You're offline — messages will wait to be sent. Check your connection.</div>}
-        {group && <div style={{ padding: 12, borderBottom: "1px solid var(--line)" }}><b>🏝️ {group.title}</b> <span className="muted">· group room</span></div>}
+        {group && <div style={{ padding: 12, borderBottom: "1px solid var(--line)" }}><div className="row" style={{ justifyContent: "space-between" }}><span><b>🏝️ {group.title}</b> <span className="muted">· group room</span></span><a className="btn ghost" href={`/rooms/${group.id}`}>⚙️ Group settings</a></div>{group.announcement && <div style={{ marginTop: 6 }} role="note">📣 {group.announcement}</div>}</div>}
         {active?.pet && (
           <div style={{ padding: 10, display: "grid", gridTemplateColumns: "150px 1fr", gap: 12, alignItems: "center", borderBottom: "1px solid var(--line)" }}>
             <PetStage species={active.pet.species as SpeciesId} colors={active.pet.colors} equipped={active.pet.equipped} evolution={pr?.evolution ?? 0} personality={active.pet.personality as Personality} home={active.pet.home} mood={mood} height={120} lowPower={prefs.lowPower} reducedMotion={prefs.reducedMotion} />
@@ -315,7 +318,8 @@ function Chat() {
             <button className="btn ghost" onClick={() => { const q2 = prompt("Poll question?"); if (!q2) return; const o = prompt("Options, comma-separated")?.split(",").map((x) => x.trim()).filter(Boolean); if (o && o.length > 1) send("poll", q2, { q: q2, options: o.slice(0, 6) }); }}>📊 Poll</button>
             <button className="btn ghost" onClick={() => { const item = prompt("What's the surprise? (e.g. a virtual cake)"); if (item) send("surprise", "A surprise for you!", { item }); }}>🎁 Surprise</button>
           </div>
-          <form className="row" onSubmit={submit}>
+          {locked && <div className="muted" role="status">Only admins can send messages in this group.</div>}
+          <form className="row" onSubmit={submit} aria-disabled={locked} style={locked ? { opacity: 0.5, pointerEvents: "none" } : undefined}>
             <input style={{ flex: 1 }} value={text} onChange={(e) => onType(e.target.value)} placeholder={secret ? "Secret message (tap to reveal)…" : "Message…"} aria-label="Message" maxLength={4000} />
             <label className="chip"><input type="checkbox" checked={secret} onChange={(e) => setSecret(e.target.checked)} style={{ width: "auto" }} />🔒</label>
             <button className="btn">{editing ? "Save" : "Send"}</button>

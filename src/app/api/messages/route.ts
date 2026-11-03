@@ -30,7 +30,9 @@ export const POST = (req: Request) => authed(async ({ user }) => {
   if (!member) throw new Error("forbidden");
   // Media must live in the sender's own folder.
   const { data: roster } = await db.from("conversation_members").select("user_id,muted_until").eq("conversation_id", b.conversationId);
-  const { data: cv } = await db.from("conversations").select("kind").eq("id", b.conversationId).single();
+  const { data: cv } = await db.from("conversations").select("kind,only_admins_post").eq("id", b.conversationId).single();
+  const myRole = (await db.from("conversation_members").select("role").eq("conversation_id", b.conversationId).eq("user_id", user.id).single()).data?.role;
+  if (cv?.kind === "group" && cv.only_admins_post && myRole === "member") throw new Error("forbidden");
   // A block in either direction ends DM delivery.
   if (cv?.kind === "dm") { const other = roster?.find((r) => r.user_id !== user.id); if (other && (await isBlocked(user.id, other.user_id))) throw new Error("forbidden"); }
   // Replies must stay inside this conversation; forwards require the sender to be able to read the source (RLS-checked).
