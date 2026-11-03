@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase/browser";
 import { api, uploadMedia, useMe } from "@/lib/data";
 
-const KINDS = [["message", "Messages"], ["friend_request", "Friend requests"], ["group_invite", "Group invitations"], ["mention", "Mentions"], ["reaction", "Reactions"], ["missed_call", "Missed calls"], ["room_invite", "Room invitations"], ["moment", "New moments"]] as const;
+const KINDS = [["message", "Messages"], ["friend_request", "Friend requests"], ["group_invite", "Group invitations"], ["mention", "Mentions"], ["reaction", "Reactions"], ["missed_call", "Missed calls"], ["room_invite", "Room invitations"], ["moment", "New moments"], ["sticker_request", "Sticker requests"], ["call", "Calls"]] as const;
 
 export function Account() {
   const me = useMe();

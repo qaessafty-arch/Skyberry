@@ -5,7 +5,7 @@ import { BRAND } from "@/lib/brand";
 import { Presence } from "./Presence";
 import { NavLink } from "./NavLink";
 
-const NAV = [["/chats", "💬", "Chats"], ["/moments", "✨", "Moments"], ["/camera", "📷", "Camera"], ["/universe", "🪐", "Ocean Universe"], ["/pets", "🐙", "Pets"], ["/friends", "🫧", "Friends"], ["/rooms", "🏝️", "Rooms"], ["/saved", "💾", "Saved"], ["/notifications", "🔔", "Notifications"], ["/settings", "⚙️", "Settings"]] as const;
+const NAV = [["/chats", "💬", "Chats"], ["/moments", "✨", "Moments"], ["/camera", "📷", "Camera"], ["/universe", "🪐", "Ocean Universe"], ["/pets", "🐙", "Pets"], ["/friends", "🫧", "Friends"], ["/rooms", "🏝️", "Rooms"], ["/saved", "💾", "Saved"], ["/stickers", "🖼️", "Stickers"], ["/notifications", "🔔", "Notifications"], ["/settings", "⚙️", "Settings"]] as const;
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const { data } = await (await userClient()).auth.getUser();

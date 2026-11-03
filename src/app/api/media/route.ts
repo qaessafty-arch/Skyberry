@@ -14,7 +14,7 @@ export async function GET(req: Request) {
   let ok = path.startsWith(`${user.id}/`);
   if (!ok) {
     // (table, column) pairs a caller may legitimately see — RLS decides per row.
-    for (const [t, col] of [["messages", "media_path"], ["moments", "media_path"], ["double_reveals", "media_path"], ["conversations", "avatar_path"], ["profiles", "avatar_path"]] as const) {
+    for (const [t, col] of [["messages", "media_path"], ["moments", "media_path"], ["double_reveals", "media_path"], ["conversations", "avatar_path"], ["profiles", "avatar_path"], ["stickers", "media_path"]] as const) {
       const { data } = await sb.from(t).select(col).eq(col, path).limit(1);
       if (data?.length) { ok = true; break; }
     }

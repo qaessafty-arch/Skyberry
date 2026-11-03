@@ -10,6 +10,7 @@ import { PetStage } from "@/modules/social/Pet";
 import { MessageBody, type Msg, type Reaction } from "@/modules/social/Message";
 import { usePetMood, type PetEvent } from "@/modules/social/usePetMood";
 import type { SpeciesId, Personality } from "@/modules/pets/catalog";
+import { StickerPicker } from "@/modules/stickers/StickerPicker";
 import { VoiceRecorder } from "@/modules/media/VoiceRecorder";
 import { DARES, TRIVIA, TRUTHS, pick } from "@/modules/social/games";
 import { playSfx } from "@/lib/sounds";
@@ -57,6 +58,7 @@ function Chat() {
   const [styling, setStyling] = useState(false);
   const soundsRef = useRef(false);
   soundsRef.current = prefs.sounds;
+  const [stickerOpen, setStickerOpen] = useState(false);
   const [gallery, setGallery] = useState(false);
   const [pane, setPane] = useState<"list" | "thread">("thread");
   const threadRef = useRef<HTMLElement>(null);
@@ -347,9 +349,11 @@ function Chat() {
         {toast && <div className="chip" role="status" style={{ alignSelf: "center", marginBottom: 6 }}>{toast}</div>}
         <div style={{ padding: 10, borderTop: "1px solid var(--line)", display: "grid", gap: 8 }}>
           {(replyTo || editing) && <div className="chip" style={{ justifyContent: "space-between" }}>{editing ? "Editing message" : `Replying to ${(replyTo!.body ?? "media").slice(0, 40)}`}<button className="btn ghost" style={{ padding: ".1em .6em" }} onClick={() => { setReplyTo(null); setEditing(null); setText(""); }} aria-label="Cancel">✕</button></div>}
+          {stickerOpen && <StickerPicker conversationId={cid} onClose={() => setStickerOpen(false)} onSticker={(st) => { send("sticker", st.name ?? "Sticker", { stickerId: st.id }); setStickerOpen(false); }} onEmoji={(e) => send("sticker", e)} onGif={(g) => { send("gif", "GIF", { url: g.url }); setStickerOpen(false); }} />}
           <UploadPanel uploads={uploads} />
           <div className="row">
-            {STICKERS.map((s) => <button key={s} className="btn ghost" style={{ padding: ".3em .5em" }} aria-label={`Send ${s}`} onClick={() => send("sticker", s)}>{s}</button>)}
+            <button className="btn ghost" onClick={() => setStickerOpen(!stickerOpen)} aria-expanded={stickerOpen}>😀 Stickers &amp; GIFs</button>
+            {STICKERS.slice(0, 5).map((s) => <button key={s} className="btn ghost" style={{ padding: ".3em .5em" }} aria-label={`Send ${s}`} onClick={() => send("sticker", s)}>{s}</button>)}
             <button className="btn ghost" onClick={() => { const [a, b] = WYR[Math.floor(Math.random() * WYR.length)]; send("game", "Would you rather…", { q: "Would you rather…", options: [a, b] }); }}>🎲 Would you rather</button>
             <button className="btn ghost" onClick={() => { const q2 = prompt("Poll question?"); if (!q2) return; const o = prompt("Options, comma-separated")?.split(",").map((x) => x.trim()).filter(Boolean); if (o && o.length > 1) send("poll", q2, { q: q2, options: o.slice(0, 6) }); }}>📊 Poll</button>
             <button className="btn ghost" onClick={() => send("game", "Truth or Dare?", { game: "tod", q: "Truth or Dare?", options: ["Truth", "Dare"] })}>🎭 Truth or dare</button>

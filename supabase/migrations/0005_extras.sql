@@ -3,7 +3,7 @@
 -- ───────────── message kinds + notification kinds ─────────────
 alter table public.messages drop constraint messages_kind_check;
 alter table public.messages add constraint messages_kind_check
-  check (kind in ('text','image','voice','sticker','secret','surprise','poll','game','video','audio','file','location'));
+  check (kind in ('text','image','voice','sticker','secret','surprise','poll','game','video','audio','file','location','gif'));
 alter table public.notifications drop constraint notifications_kind_check;
 alter table public.notifications add constraint notifications_kind_check
   check (kind in ('message','friend_request','group_invite','mention','reaction','missed_call','room_invite','moment','sticker_request','call'));

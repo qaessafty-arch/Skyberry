@@ -4,6 +4,8 @@ import { adminClient } from "@/lib/supabase/server";
 import { record } from "@/modules/progression/service";
 import { isBlocked, limit, notify } from "@/modules/notify/service";
 import { validateUpload } from "@/lib/security/upload";
+import { validateGifUrl } from "@/lib/stickers/logic";
+import { userClient } from "@/lib/supabase/server";
 import { safeDisplayName } from "@/lib/media/helpers";
 
 const MEDIA_KINDS = ["image", "video", "audio", "voice", "file"] as const;
@@ -12,7 +14,7 @@ import type { InteractionKind } from "@/lib/progression/interactions";
 
 const Body = z.object({
   conversationId: z.string().uuid(),
-  kind: z.enum(["text", "image", "voice", "sticker", "secret", "surprise", "poll", "game", "video", "audio", "file", "location"]),
+  kind: z.enum(["text", "image", "voice", "sticker", "secret", "surprise", "poll", "game", "video", "audio", "file", "location", "gif"]),
   body: z.string().max(4000).optional(),
   mediaPath: z.string().max(300).optional(),
   meta: z.record(z.string(), z.unknown()).optional(),
@@ -49,7 +51,16 @@ export const POST = (req: Request) => authed(async ({ user }) => {
   // Replies must stay inside this conversation; forwards require the sender to be able to read the source (RLS-checked).
   if (b.replyTo) { const { data: r } = await db.from("messages").select("id").eq("id", b.replyTo).eq("conversation_id", b.conversationId).maybeSingle(); if (!r) throw new Error("bad_request"); }
   if (b.forwardedFrom) { const { data: src } = await (await import("@/lib/supabase/server")).userClient().then((c) => c.from("messages").select("id").eq("id", b.forwardedFrom!).maybeSingle()); if (!src) throw new Error("forbidden"); }
-  if (b.mediaPath && !b.mediaPath.startsWith(`${user.id}/`)) throw new Error("bad_request");
+  // Sticker messages: media comes from a sticker the sender can SEE (RLS: owned, shared, or friend-group pack with settled consent).
+  let stickerMedia: string | null = null;
+  if (b.kind === "sticker" && typeof b.meta?.stickerId === "string") {
+    const { data: st } = await (await userClient()).from("stickers").select("id,media_path,consent").eq("id", b.meta.stickerId).maybeSingle();
+    if (!st || !["self", "approved"].includes(st.consent)) throw new Error("forbidden");
+    stickerMedia = st.media_path;
+    await db.from("sticker_recents").upsert({ user_id: user.id, sticker_id: st.id, used_at: new Date().toISOString() });
+  } else if (b.mediaPath && b.kind !== "sticker" && !b.mediaPath.startsWith(`${user.id}/`)) throw new Error("bad_request");
+  if (b.kind === "sticker" && b.mediaPath && !stickerMedia) throw new Error("bad_request");
+  if (b.kind === "gif") { const u = validateGifUrl(b.meta?.url); if (!u) throw new Error("bad_request"); b.meta = { url: u, title: typeof b.meta?.title === "string" ? b.meta.title.slice(0, 80) : undefined }; }
   // Media messages: the object must really exist in the sender's folder, and its STORED type/size must pass the upload policy
   // for the claimed kind. Display metadata (name/size/mime) comes from storage, not from the client.
   let meta: Record<string, unknown> = b.meta ?? {};
@@ -67,7 +78,7 @@ export const POST = (req: Request) => authed(async ({ user }) => {
   }
 
   const { data: msg, error } = await db.from("messages").insert({
-    conversation_id: b.conversationId, sender_id: user.id, kind: b.kind, body: b.body ?? null, media_path: b.mediaPath ?? null, meta, reply_to: b.replyTo ?? null, forwarded_from: b.forwardedFrom ?? null,
+    conversation_id: b.conversationId, sender_id: user.id, kind: b.kind, body: b.body ?? null, media_path: stickerMedia ?? b.mediaPath ?? null, meta, reply_to: b.replyTo ?? null, forwarded_from: b.forwardedFrom ?? null,
   }).select().single();
   if (error) throw error;
 

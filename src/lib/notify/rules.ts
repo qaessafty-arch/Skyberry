@@ -1,4 +1,4 @@
-export type NotifyKind = "message" | "friend_request" | "group_invite" | "mention" | "reaction" | "missed_call" | "room_invite" | "moment";
+export type NotifyKind = "message" | "friend_request" | "group_invite" | "mention" | "reaction" | "missed_call" | "room_invite" | "moment" | "sticker_request" | "call";
 export interface NotifySettings { notify?: Partial<Record<NotifyKind, boolean>>; quiet_hours?: { start: string; end: string } | null }
 
 /** Minutes since midnight in a time zone. */

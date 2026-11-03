@@ -9,6 +9,7 @@ const LABEL: Record<string, (p: Record<string, string>) => [string, string]> = {
   message: (p) => [`💬 New message${p.from ? ` from ${p.from}` : ""}`, p.conversationId ? `/chats?c=${p.conversationId}` : "/chats"],
   mention: (p) => [`@ ${p.from ?? "Someone"} mentioned you`, p.conversationId ? `/chats?c=${p.conversationId}` : "/chats"],
   friend_request: () => ["🫧 Friend request", "/friends"], group_invite: () => ["🏝️ Group invitation", "/rooms"], room_invite: () => ["🏝️ Room invitation", "/rooms"],
+  sticker_request: () => ["🖼️ A friend wants to make a sticker of you — approve or decline", "/stickers"], call: (p) => [`📞 ${p.from ?? "Someone"} started a call`, p.conversationId ? `/rooms/${p.conversationId}/call` : "/rooms"],
   reaction: (p) => [`${p.emoji ?? "❤️"} Someone reacted to your moment`, "/moments"], moment: () => ["✨ New moment from a friend", "/moments"], missed_call: () => ["📞 Missed call", "/rooms"],
 };
 
