@@ -2,6 +2,8 @@ import type { UploadKind } from "@/lib/security/upload";
 
 export type MediaMsgKind = "image" | "video" | "audio" | "file";
 /** Upload policy kind → chat message kind. */
+/** Files above this use the resumable (TUS) protocol; smaller ones use a single request. */
+export const RESUMABLE_THRESHOLD = 6 * 1024 * 1024;
 export const messageKindFor = (k: UploadKind): MediaMsgKind => k;
 export type GalleryTab = "photos" | "videos" | "audio" | "files";
 export const TAB_KINDS: Record<GalleryTab, string[]> = { photos: ["image"], videos: ["video"], audio: ["audio", "voice"], files: ["file"] };
@@ -35,7 +37,7 @@ export function optimizeTarget(f: { type: string; size: number }, dims: { w: num
   return null;
 }
 
-export interface QueueItem { id: string; name: string; size: number; progress: number; status: "queued" | "uploading" | "sending" | "done" | "error" | "canceled"; error?: string }
+export interface QueueItem { id: string; name: string; size: number; progress: number; status: "queued" | "uploading" | "paused" | "sending" | "done" | "error" | "canceled"; error?: string }
 /** Next queued item to start given a concurrency limit, or null. */
 export function nextToStart(items: QueueItem[], concurrency = 2): QueueItem | null {
   const active = items.filter((i) => i.status === "uploading" || i.status === "sending").length;

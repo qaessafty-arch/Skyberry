@@ -61,3 +61,20 @@ describe("games", () => {
     for (const t of TRIVIA) { expect(t.answer).toBeGreaterThanOrEqual(0); expect(t.answer).toBeLessThan(t.options.length); }
   });
 });
+
+import { readWithProgress } from "../../modules/media/download";
+describe("download progress", () => {
+  it("reports increasing progress and returns the full body", async () => {
+    const chunks = [new Uint8Array(400), new Uint8Array(400), new Uint8Array(200)];
+    const body = new ReadableStream({ start(c) { chunks.forEach((x) => c.enqueue(x)); c.close(); } });
+    const seen: number[] = [];
+    const blob = await readWithProgress(new Response(body, { headers: { "content-length": "1000", "content-type": "application/pdf" } }), (p) => seen.push(p));
+    expect(blob.size).toBe(1000); expect(blob.type).toBe("application/pdf");
+    expect(seen).toEqual([40, 80, 99, 100]);
+  });
+  it("reports -1 when the size is unknown", async () => {
+    const seen: number[] = [];
+    await readWithProgress(new Response(new ReadableStream({ start(c) { c.enqueue(new Uint8Array(10)); c.close(); } })), (p) => seen.push(p));
+    expect(seen[0]).toBe(-1); expect(seen.at(-1)).toBe(100);
+  });
+});

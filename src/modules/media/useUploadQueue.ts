@@ -2,9 +2,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/data";
 import { nextToStart, type QueueItem } from "@/lib/media/helpers";
-import { maybeOptimize, uploadWithProgress } from "./uploader";
+import { maybeOptimize, uploadWithProgress, type UploadControls } from "./uploader";
 
-interface Entry { file: File; ctrl?: AbortController; kind?: "voice" }
+interface Entry { file: File; ctrl?: AbortController; kind?: "voice"; controls: UploadControls }
 
 /** Upload queue for one conversation: validate → upload (progress) → send as a message. Two at a time, cancellable, retryable. */
 export function useUploadQueue(conversationId: string | undefined, opts: { original: boolean; replyTo?: string; onSent?: () => void }) {
@@ -15,7 +15,7 @@ export function useUploadQueue(conversationId: string | undefined, opts: { origi
   const optsRef = useRef(opts); optsRef.current = opts;
 
   const add = useCallback((list: File[], opts: { kind?: "voice" } = {}) => {
-    const fresh = list.map((file) => { const id = crypto.randomUUID(); files.current.set(id, { file, kind: opts.kind }); return { id, name: file.name, size: file.size, progress: 0, status: "queued" as const }; });
+    const fresh = list.map((file) => { const id = crypto.randomUUID(); files.current.set(id, { file, kind: opts.kind, controls: {} }); return { id, name: file.name, size: file.size, progress: 0, status: "queued" as const }; });
     setItems((xs) => [...xs, ...fresh]);
   }, []);
 
@@ -25,7 +25,7 @@ export function useUploadQueue(conversationId: string | undefined, opts: { origi
     e.ctrl = new AbortController(); set(it.id, { status: "uploading", progress: 0, error: undefined });
     try {
       const file = await maybeOptimize(e.file, optsRef.current.original);
-      const up = await uploadWithProgress(file, (p) => set(it.id, { progress: p }), e.ctrl.signal);
+      const up = await uploadWithProgress(file, (p) => set(it.id, { progress: p, status: "uploading" }), e.ctrl.signal, e.controls);
       set(it.id, { status: "sending" });
       const r = await api("/api/messages", "POST", { conversationId, kind: e.kind ?? up.kind, body: it.name, mediaPath: up.path, meta: { name: it.name }, replyTo: optsRef.current.replyTo });
       if (r.error) throw new Error(r.error === "rate_limited" ? "Slow down a little." : "Couldn't send. Please retry.");
@@ -41,6 +41,9 @@ export function useUploadQueue(conversationId: string | undefined, opts: { origi
 
   return {
     items, add,
+    pause: (id: string) => { const c = files.current.get(id)?.controls; if (c?.pause) { c.pause(); set(id, { status: "paused" }); } },
+    resume: (id: string) => { const c = files.current.get(id)?.controls; if (c?.resume) { c.resume(); set(id, { status: "uploading" }); } },
+    canPause: (id: string) => !!files.current.get(id)?.controls.pause,
     cancel: (id: string) => { files.current.get(id)?.ctrl?.abort(); set(id, { status: "canceled" }); },
     retry: (id: string) => set(id, { status: "queued", progress: 0, error: undefined }),
     clearFinished: () => setItems((xs) => xs.filter((x) => x.status === "queued" || x.status === "uploading" || x.status === "sending")),

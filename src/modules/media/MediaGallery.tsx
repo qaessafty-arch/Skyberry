@@ -4,6 +4,7 @@ import { supabase } from "@/lib/supabase/browser";
 import { api, signedUrl } from "@/lib/data";
 import { formatBytes, TAB_KINDS, type GalleryTab } from "@/lib/media/helpers";
 import { useVisible } from "./useVisible";
+import { downloadWithProgress } from "./download";
 
 interface Item { id: string; sender_id: string; kind: string; media_path: string; body: string | null; meta: { name?: string; size?: number; mime?: string }; created_at: string }
 const PAGE = 36;
@@ -42,12 +43,12 @@ function Viewer({ items, index, onClose, setIndex }: { items: Item[]; index: num
 }
 
 function FileRow({ it }: { it: Item }) {
-  const [busy, setBusy] = useState(false);
-  const open = async () => { setBusy(true); const u = await signedUrl(it.media_path); setBusy(false); if (u) window.open(u, "_blank", "noopener"); };
+  const [pct, setPct] = useState<number | null>(null); const [err, setErr] = useState(false);
+  const open = async () => { setErr(false); setPct(0); try { const u = await signedUrl(it.media_path); if (!u) throw new Error(); await downloadWithProgress(u, it.meta.name ?? "download", setPct); } catch { setErr(true); } finally { setPct(null); } };
   return (
     <li className="row" style={{ justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid var(--line)" }}>
       <span style={{ minWidth: 0 }}>{it.kind === "file" ? "📄" : "🎧"} <b style={{ wordBreak: "break-all" }}>{it.meta.name ?? it.body ?? "File"}</b><div className="muted" style={{ fontSize: ".8rem" }}>{it.meta.size ? formatBytes(it.meta.size) : ""} · {new Date(it.created_at).toLocaleDateString()}</div></span>
-      <button className="btn ghost" onClick={open} disabled={busy}>{busy ? "…" : "⬇ Open"}</button>
+      <button className="btn ghost" onClick={open} disabled={pct !== null} aria-label={`Download ${it.meta.name ?? "file"}`}>{err ? "Retry ⬇" : pct === null ? "⬇ Download" : pct < 0 ? "…" : `${pct}%`}</button>
     </li>);
 }
 

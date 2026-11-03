@@ -12,8 +12,10 @@ export function UploadPanel({ uploads }: { uploads: ReturnType<typeof useUploadQ
         <div key={u.id} data-status={u.status}>
           <div className="row" style={{ justifyContent: "space-between", fontSize: ".85rem" }}>
             <span style={{ wordBreak: "break-all" }}>{u.name} <span className="muted">{formatBytes(u.size)}</span></span>
-            <span>{u.status === "done" ? "✓ Sent" : u.status === "canceled" ? "Canceled" : u.status === "error" ? <span style={{ color: "#d6336c" }}>{u.error}</span> : u.status === "sending" ? "Sending…" : u.status === "queued" ? "Waiting…" : `${u.progress}%`}
-              {(u.status === "uploading" || u.status === "queued") && <button className="btn ghost" style={{ padding: ".05em .5em", marginLeft: 6 }} onClick={() => uploads.cancel(u.id)} aria-label={`Cancel ${u.name}`}>✕</button>}
+            <span>{u.status === "paused" ? "Paused" : u.status === "done" ? "✓ Sent" : u.status === "canceled" ? "Canceled" : u.status === "error" ? <span style={{ color: "#d6336c" }}>{u.error}</span> : u.status === "sending" ? "Sending…" : u.status === "queued" ? "Waiting…" : `${u.progress}%`}
+              {u.status === "uploading" && uploads.canPause(u.id) && <button className="btn ghost" style={{ padding: ".05em .5em", marginLeft: 6 }} onClick={() => uploads.pause(u.id)} aria-label={`Pause ${u.name}`}>⏸</button>}
+              {u.status === "paused" && <button className="btn ghost" style={{ padding: ".05em .5em", marginLeft: 6 }} onClick={() => uploads.resume(u.id)} aria-label={`Resume ${u.name}`}>▶</button>}
+              {(u.status === "uploading" || u.status === "queued" || u.status === "paused") && <button className="btn ghost" style={{ padding: ".05em .5em", marginLeft: 6 }} onClick={() => uploads.cancel(u.id)} aria-label={`Cancel ${u.name}`}>✕</button>}
               {(u.status === "error" || u.status === "canceled") && <button className="btn ghost" style={{ padding: ".05em .5em", marginLeft: 6 }} onClick={() => uploads.retry(u.id)}>Retry</button>}</span>
           </div>
           <div style={{ height: 4, borderRadius: 9, background: "var(--line)" }} role="progressbar" aria-valuenow={u.progress} aria-valuemin={0} aria-valuemax={100} aria-label={`${u.name} upload`}><div style={{ width: `${u.progress}%`, height: "100%", borderRadius: 9, background: u.status === "error" ? "#d6336c" : "linear-gradient(90deg,var(--blue),var(--cyan))" }} /></div>

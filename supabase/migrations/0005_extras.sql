@@ -96,3 +96,14 @@ create policy "remove own subscription" on public.push_subscriptions for delete 
 
 -- ───────────── moments: music / location metadata ─────────────
 alter table public.moments add column meta jsonb not null default '{}';
+
+-- ───────────── storage hardening ─────────────
+-- Direct/resumable uploads use the user's own token, so enforce limits at the bucket too (not only in /api/upload-url).
+update storage.buckets set file_size_limit = 536870912, allowed_mime_types = array[
+  'image/jpeg','image/png','image/webp','image/gif','image/avif',
+  'video/mp4','video/webm','video/quicktime',
+  'audio/mpeg','audio/mp4','audio/ogg','audio/wav','audio/webm',
+  'application/pdf','text/plain','application/zip','application/x-zip-compressed','text/csv',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation'] where id = 'media';
