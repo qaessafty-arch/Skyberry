@@ -15,6 +15,7 @@ describe("rate limiter", () => {
 
 describe("upload validation", () => {
   it("accepts matching ext+mime within limits", () => expect(validateUpload("pic.JPG", "image/jpeg", 1000)).toMatchObject({ ok: true, kind: "image" }));
+  it("ignores mime parameters such as codecs (MediaRecorder output)", () => expect(validateUpload("voice.webm", "audio/webm;codecs=opus", 5000)).toMatchObject({ ok: true, kind: "audio" }));
   it("rejects mismatched mime", () => expect(validateUpload("pic.jpg", "text/html", 1000)).toMatchObject({ ok: false }));
   it("rejects active content even when disguised", () => {
     expect(validateUpload("evil.html", "text/html", 10)).toMatchObject({ ok: false, reason: "blocked_type" });

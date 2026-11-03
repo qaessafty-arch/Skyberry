@@ -12,7 +12,7 @@ import type { InteractionKind } from "@/lib/progression/interactions";
 
 const Body = z.object({
   conversationId: z.string().uuid(),
-  kind: z.enum(["text", "image", "voice", "sticker", "secret", "surprise", "poll", "game", "video", "audio", "file"]),
+  kind: z.enum(["text", "image", "voice", "sticker", "secret", "surprise", "poll", "game", "video", "audio", "file", "location"]),
   body: z.string().max(4000).optional(),
   mediaPath: z.string().max(300).optional(),
   meta: z.record(z.string(), z.unknown()).optional(),
@@ -40,6 +40,12 @@ export const POST = (req: Request) => authed(async ({ user }) => {
   if (cv?.kind === "group" && cv.only_admins_post && myRole === "member") throw new Error("forbidden");
   // A block in either direction ends DM delivery.
   if (cv?.kind === "dm") { const other = roster?.find((r) => r.user_id !== user.id); if (other && (await isBlocked(user.id, other.user_id))) throw new Error("forbidden"); }
+  // Location messages: coordinates must be real numbers in range; we round to ~1 m so we never store false precision.
+  if (b.kind === "location") {
+    const lat = Number(b.meta?.lat), lng = Number(b.meta?.lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) throw new Error("bad_request");
+    b.meta = { lat: Math.round(lat * 1e5) / 1e5, lng: Math.round(lng * 1e5) / 1e5, label: typeof b.meta?.label === "string" ? b.meta.label.slice(0, 80) : undefined };
+  }
   // Replies must stay inside this conversation; forwards require the sender to be able to read the source (RLS-checked).
   if (b.replyTo) { const { data: r } = await db.from("messages").select("id").eq("id", b.replyTo).eq("conversation_id", b.conversationId).maybeSingle(); if (!r) throw new Error("bad_request"); }
   if (b.forwardedFrom) { const { data: src } = await (await import("@/lib/supabase/server")).userClient().then((c) => c.from("messages").select("id").eq("id", b.forwardedFrom!).maybeSingle()); if (!src) throw new Error("forbidden"); }

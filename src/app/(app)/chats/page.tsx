@@ -10,6 +10,10 @@ import { PetStage } from "@/modules/social/Pet";
 import { MessageBody, type Msg, type Reaction } from "@/modules/social/Message";
 import { usePetMood, type PetEvent } from "@/modules/social/usePetMood";
 import type { SpeciesId, Personality } from "@/modules/pets/catalog";
+import { VoiceRecorder } from "@/modules/media/VoiceRecorder";
+import { DARES, TRIVIA, TRUTHS, pick } from "@/modules/social/games";
+import { playSfx } from "@/lib/sounds";
+import { useSwipe } from "@/lib/useSwipe";
 import { MediaGallery } from "@/modules/media/MediaGallery";
 import { useUploadQueue } from "@/modules/media/useUploadQueue";
 import { UploadPanel } from "@/modules/media/UploadPanel";
@@ -51,7 +55,12 @@ function Chat() {
   const [unread, setUnread] = useState<Record<string, number>>({});
   const [style, setStyle] = useState<ChatStyle>(DEFAULT_STYLE);
   const [styling, setStyling] = useState(false);
+  const soundsRef = useRef(false);
+  soundsRef.current = prefs.sounds;
   const [gallery, setGallery] = useState(false);
+  const [pane, setPane] = useState<"list" | "thread">("thread");
+  const threadRef = useRef<HTMLElement>(null);
+  useSwipe(threadRef, { onRight: () => setPane("list") });
   const [original, setOriginal] = useState(false);
   const [dragging, setDragging] = useState(false);
   const dragDepth = useRef(0);
@@ -111,7 +120,7 @@ function Chat() {
       if (live) setUnread((u) => ({ ...u, [cid]: 0 }));
     })();
     const ch = sb.channel(`chat:${cid}`, { config: { broadcast: { self: false } } })
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages", filter: `conversation_id=eq.${cid}` }, (p) => setMsgs((m) => (m.some((x) => x.id === (p.new as Msg).id) ? m : [...m, p.new as Msg])))
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages", filter: `conversation_id=eq.${cid}` }, (p) => { const nm = p.new as Msg; if (nm.sender_id !== me.id && soundsRef.current) playSfx(nm.kind === "sticker" ? "giggle" : "pop"); setMsgs((m) => (m.some((x) => x.id === nm.id) ? m : [...m, nm])); })
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "messages", filter: `conversation_id=eq.${cid}` }, (p) => setMsgs((m) => m.map((x) => (x.id === (p.new as Msg).id ? (p.new as Msg) : x))))
       .on("postgres_changes", { event: "*", schema: "public", table: "message_reactions" }, async () => { const ids = (await sb.from("messages").select("id").eq("conversation_id", cid).order("created_at", { ascending: false }).limit(PAGE)).data?.map((x) => x.id) ?? []; const { data: r } = await sb.from("message_reactions").select("*").in("message_id", ids); setReacts((r as Reaction[]) ?? []); })
       .on("postgres_changes", { event: "*", schema: "public", table: "message_receipts" }, (p) => { const r = p.new as Receipt; if (r?.message_id) setReceipts((all) => [...all.filter((x) => !(x.message_id === r.message_id && x.user_id === r.user_id)), r]); })
@@ -192,16 +201,26 @@ function Chat() {
     if (Date.now() - lastTyping.current > 2000 && me) { lastTyping.current = Date.now(); channel.current?.send({ type: "broadcast", event: "typing", payload: { id: me.id } }); }
   }
   async function vote(m: Msg, i: number) {
+    const g = m.meta as { game?: string; options?: string[] };
+    if (g.game === "tod" && g.options) { const choice = g.options[i]; await send("game", choice, { game: "tod-prompt", choice, prompt: pick(choice === "Truth" ? TRUTHS : DARES) }, m.id); return; }
     const sb = supabase();
     const mine = reacts.filter((r) => r.message_id === m.id && r.user_id === me!.id && r.emoji.startsWith("vote:"));
     for (const r of mine) await sb.from("message_reactions").delete().match({ message_id: m.id, user_id: me!.id, emoji: r.emoji });
     if (!mine.some((r) => r.emoji === `vote:${i}`)) await sb.from("message_reactions").insert({ message_id: m.id, user_id: me!.id, emoji: `vote:${i}` });
+  }
+  async function shareLocation() {
+    if (!navigator.geolocation) return setToast("Location isn't available on this device");
+    navigator.geolocation.getCurrentPosition((pos) => {
+      const { latitude: lat, longitude: lng } = pos.coords;
+      if (confirm(`Share your current location with this chat?\n(${lat.toFixed(3)}, ${lng.toFixed(3)})`)) send("location", "📍 Location", { lat, lng, label: "Shared location" });
+    }, (e) => setToast(e.code === e.PERMISSION_DENIED ? "Location permission was denied" : "Couldn't get your location"), { enableHighAccuracy: false, timeout: 10_000 });
   }
   async function react(m: Msg, emoji: string) {
     const sb = supabase();
     const has = reacts.some((r) => r.message_id === m.id && r.user_id === me!.id && r.emoji === emoji);
     if (has) await sb.from("message_reactions").delete().match({ message_id: m.id, user_id: me!.id, emoji });
     else await sb.from("message_reactions").insert({ message_id: m.id, user_id: me!.id, emoji });
+    if (!has && prefs.sounds) playSfx("ding");
     setReacts((rs) => (has ? rs.filter((r) => !(r.message_id === m.id && r.user_id === me!.id && r.emoji === emoji)) : [...rs, { message_id: m.id, user_id: me!.id, emoji }])); setMenu(null);
   }
   async function forward(m: Msg) {
@@ -238,20 +257,20 @@ function Chat() {
   const shown = results ?? msgs;
 
   return (
-    <div className={`chat ${gallery ? "with-gallery" : ""} ${prefs.reducedMotion ? "reduced" : ""}`}>
+    <div className={`chat pane-${pane} ${gallery ? "with-gallery" : ""} ${prefs.reducedMotion ? "reduced" : ""}`}>
       <aside className="glass card" style={{ overflow: "auto" }} aria-label="Conversations">
         {groups.map((g) => (
-          <button key={g.id} className={`btn ${g.id === cid ? "" : "ghost"}`} style={{ width: "100%", marginBottom: 8, textAlign: "left", display: "flex", justifyContent: "space-between" }} onClick={() => router.push(`/chats?c=${g.id}`)}>
+          <button key={g.id} className={`btn ${g.id === cid ? "" : "ghost"}`} style={{ width: "100%", marginBottom: 8, textAlign: "left", display: "flex", justifyContent: "space-between" }} onClick={() => { setPane("thread"); router.push(`/chats?c=${g.id}`); }}>
             <span>🏝️ {g.title}</span>{unread[g.id] ? <span className="chip">{unread[g.id]}</span> : null}
           </button>
         ))}
         {accepted.map((f) => { const s = streakView(f); return (
-          <button key={f.friendshipId} className={`btn ${f === active ? "" : "ghost"}`} style={{ width: "100%", marginBottom: 8, textAlign: "left", display: "flex", justifyContent: "space-between" }} onClick={() => router.push(`/chats?c=${f.conversationId}`)}>
+          <button key={f.friendshipId} className={`btn ${f === active ? "" : "ghost"}`} style={{ width: "100%", marginBottom: 8, textAlign: "left", display: "flex", justifyContent: "space-between" }} onClick={() => { setPane("thread"); router.push(`/chats?c=${f.conversationId}`); }}>
             <span>{f.other.display_name}</span>
             <span>{f.conversationId && unread[f.conversationId] ? <span className="chip">{unread[f.conversationId]}</span> : null}{s.value > 0 && ` ${s.status === "resting" ? "🌙" : "🔥"} ${s.value}`}</span>
           </button>); })}
       </aside>
-      <section className="glass thread" style={{ ...(styleVars(style) as React.CSSProperties), position: "relative" }} {...dragProps}>
+      <section ref={threadRef} className="glass thread" style={{ ...(styleVars(style) as React.CSSProperties), position: "relative" }} {...dragProps}>
         {dragging && <div role="presentation" style={{ position: "absolute", inset: 0, zIndex: 5, display: "grid", placeItems: "center", background: "rgba(10,132,255,.18)", border: "3px dashed var(--blue)", borderRadius: 22, pointerEvents: "none", fontWeight: 700, fontSize: "1.2rem" }}>Drop to share in this chat 🌊</div>}
         {!online && <div role="status" className="chip" style={{ margin: 8, background: "#ffe3e3" }}>You're offline — messages will wait to be sent. Check your connection.</div>}
         {group && <div style={{ padding: 12, borderBottom: "1px solid var(--line)" }}><div className="row" style={{ justifyContent: "space-between" }}><span><b>🏝️ {group.title}</b> <span className="muted">· group room</span></span><a className="btn ghost" href={`/rooms/${group.id}`}>⚙️ Group settings</a></div>{group.announcement && <div style={{ marginTop: 6 }} role="note">📣 {group.announcement}</div>}</div>}
@@ -266,7 +285,7 @@ function Chat() {
               {otherId && <button className="btn ghost" style={{ marginTop: 6, marginLeft: 6 }} onClick={async () => { if (confirm(`Block ${active.other.display_name}? They won't be able to message you or see your moments.`)) { await api("/api/blocks", "POST", { userId: otherId, blocked: true }); setToast("Blocked"); } }}>Block</button>}
             </div>
           </div>)}
-        <div className="row" style={{ padding: "6px 10px" }}><button className="btn ghost" onClick={() => setStyling(!styling)} aria-expanded={styling}>🎨 Customize chat</button><button className="btn ghost" onClick={() => setGallery(!gallery)} aria-expanded={gallery}>🖼️ Media</button></div>
+        <div className="row" style={{ padding: "6px 10px" }}><button className="btn ghost mobile-only" onClick={() => setPane("list")} aria-label="Back to conversations">‹ Chats</button><button className="btn ghost" onClick={() => setStyling(!styling)} aria-expanded={styling}>🎨 Customize chat</button><button className="btn ghost" onClick={() => setGallery(!gallery)} aria-expanded={gallery}>🖼️ Media</button></div>
         {styling && <div className="card" style={{ display: "grid", gap: 6, borderBottom: "1px solid var(--line)" }}>
           <div className="row"><label>Bubbles <input type="color" value={style.bubble} onChange={(e) => saveStyle({ ...style, bubble: e.target.value })} style={{ width: 50, padding: 2 }} /></label>
             <select aria-label="Background" value={style.bg} onChange={(e) => saveStyle({ ...style, bg: e.target.value as ChatStyle["bg"] })} style={{ width: "auto" }}><option value="none">Default</option><option value="ocean">Ocean</option><option value="deep">Deep sea</option><option value="sunset">Sunset</option><option value="mint">Mint</option><option value="custom">Custom colour</option></select>
@@ -333,11 +352,15 @@ function Chat() {
             {STICKERS.map((s) => <button key={s} className="btn ghost" style={{ padding: ".3em .5em" }} aria-label={`Send ${s}`} onClick={() => send("sticker", s)}>{s}</button>)}
             <button className="btn ghost" onClick={() => { const [a, b] = WYR[Math.floor(Math.random() * WYR.length)]; send("game", "Would you rather…", { q: "Would you rather…", options: [a, b] }); }}>🎲 Would you rather</button>
             <button className="btn ghost" onClick={() => { const q2 = prompt("Poll question?"); if (!q2) return; const o = prompt("Options, comma-separated")?.split(",").map((x) => x.trim()).filter(Boolean); if (o && o.length > 1) send("poll", q2, { q: q2, options: o.slice(0, 6) }); }}>📊 Poll</button>
+            <button className="btn ghost" onClick={() => send("game", "Truth or Dare?", { game: "tod", q: "Truth or Dare?", options: ["Truth", "Dare"] })}>🎭 Truth or dare</button>
+            <button className="btn ghost" onClick={() => { const t = pick(TRIVIA); send("game", t.q, { game: "trivia", q: t.q, options: t.options, answer: t.answer }); }}>🧠 Trivia</button>
+            <button className="btn ghost" onClick={shareLocation} aria-label="Share my location">📍 Location</button>
             <button className="btn ghost" onClick={() => { const item = prompt("What's the surprise? (e.g. a virtual cake)"); if (item) send("surprise", "A surprise for you!", { item }); }}>🎁 Surprise</button>
           </div>
           {locked && <div className="muted" role="status">Only admins can send messages in this group.</div>}
           <form className="row" onSubmit={submit} aria-disabled={locked} style={locked ? { opacity: 0.5, pointerEvents: "none" } : undefined}>
             <input style={{ flex: 1 }} value={text} onChange={(e) => onType(e.target.value)} onPaste={(e) => { const fs = Array.from(e.clipboardData.files); if (fs.length) { e.preventDefault(); uploads.add(fs); } }} placeholder={secret ? "Secret message (tap to reveal)…" : "Message…"} aria-label="Message" maxLength={4000} />
+            <VoiceRecorder disabled={locked} onSend={(f) => uploads.add([f], { kind: "voice" })} />
             <label className="btn ghost" style={{ cursor: "pointer", padding: ".5em .8em" }} aria-label="Attach files">📎<input type="file" multiple hidden onChange={(e) => { uploads.add(Array.from(e.target.files ?? [])); e.target.value = ""; }} /></label>
             <label className="chip" title="Skip photo compression"><input type="checkbox" checked={original} onChange={(e) => setOriginal(e.target.checked)} style={{ width: "auto" }} />Original quality</label>
             <label className="chip"><input type="checkbox" checked={secret} onChange={(e) => setSecret(e.target.checked)} style={{ width: "auto" }} />🔒</label>

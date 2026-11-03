@@ -1,9 +1,9 @@
 "use client";
 import { useCallback, useSyncExternalStore } from "react";
 
-export interface Prefs { reducedMotion: boolean; lowPower: boolean; universe3d: boolean; /** auto = on unless the device looks weak */ bg: "auto" | "on" | "off"; bgIntensity: number }
+export interface Prefs { reducedMotion: boolean; lowPower: boolean; universe3d: boolean; /** auto = on unless the device looks weak */ bg: "auto" | "on" | "off"; bgIntensity: number; sounds: boolean }
 const KEY = "ocean.prefs";
-const DEFAULTS: Prefs = { reducedMotion: false, lowPower: false, universe3d: true, bg: "auto", bgIntensity: 0.6 };
+const DEFAULTS: Prefs = { reducedMotion: false, lowPower: false, universe3d: true, bg: "auto", bgIntensity: 0.6, sounds: false };
 
 // One shared store so the background, settings and pages all see the same values instantly.
 let state: Prefs = DEFAULTS; let loaded = false; const subs = new Set<() => void>();

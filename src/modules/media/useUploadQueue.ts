@@ -4,7 +4,7 @@ import { api } from "@/lib/data";
 import { nextToStart, type QueueItem } from "@/lib/media/helpers";
 import { maybeOptimize, uploadWithProgress } from "./uploader";
 
-interface Entry { file: File; ctrl?: AbortController }
+interface Entry { file: File; ctrl?: AbortController; kind?: "voice" }
 
 /** Upload queue for one conversation: validate → upload (progress) → send as a message. Two at a time, cancellable, retryable. */
 export function useUploadQueue(conversationId: string | undefined, opts: { original: boolean; replyTo?: string; onSent?: () => void }) {
@@ -14,8 +14,8 @@ export function useUploadQueue(conversationId: string | undefined, opts: { origi
   const set = useCallback((id: string, p: Partial<QueueItem>) => setItems((xs) => xs.map((x) => (x.id === id ? { ...x, ...p } : x))), []);
   const optsRef = useRef(opts); optsRef.current = opts;
 
-  const add = useCallback((list: File[]) => {
-    const fresh = list.map((file) => { const id = crypto.randomUUID(); files.current.set(id, { file }); return { id, name: file.name, size: file.size, progress: 0, status: "queued" as const }; });
+  const add = useCallback((list: File[], opts: { kind?: "voice" } = {}) => {
+    const fresh = list.map((file) => { const id = crypto.randomUUID(); files.current.set(id, { file, kind: opts.kind }); return { id, name: file.name, size: file.size, progress: 0, status: "queued" as const }; });
     setItems((xs) => [...xs, ...fresh]);
   }, []);
 
@@ -27,7 +27,7 @@ export function useUploadQueue(conversationId: string | undefined, opts: { origi
       const file = await maybeOptimize(e.file, optsRef.current.original);
       const up = await uploadWithProgress(file, (p) => set(it.id, { progress: p }), e.ctrl.signal);
       set(it.id, { status: "sending" });
-      const r = await api("/api/messages", "POST", { conversationId, kind: up.kind, body: it.name, mediaPath: up.path, meta: { name: it.name }, replyTo: optsRef.current.replyTo });
+      const r = await api("/api/messages", "POST", { conversationId, kind: e.kind ?? up.kind, body: it.name, mediaPath: up.path, meta: { name: it.name }, replyTo: optsRef.current.replyTo });
       if (r.error) throw new Error(r.error === "rate_limited" ? "Slow down a little." : "Couldn't send. Please retry.");
       set(it.id, { status: "done", progress: 100 }); files.current.delete(it.id); optsRef.current.onSent?.();
     } catch (err) {

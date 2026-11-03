@@ -15,6 +15,7 @@ export function validateUpload(name: string, mime: string, size: number): { ok: 
   if (parts.length < 2) return { ok: false, reason: "no_extension" };
   if (parts.slice(1).some((p) => BLOCKED_EXT.has(p))) return { ok: false, reason: "blocked_type" }; // catches evil.html.jpg too
   const ext = parts.at(-1)!;
+  mime = mime.split(";")[0].trim(); // "audio/webm;codecs=opus" → "audio/webm"
   if (!Number.isFinite(size) || size <= 0) return { ok: false, reason: "empty" };
   for (const kind of Object.keys(UPLOAD_POLICY) as UploadKind[]) {
     const p = UPLOAD_POLICY[kind] as { exts: readonly string[]; mimes: readonly string[]; max: number };

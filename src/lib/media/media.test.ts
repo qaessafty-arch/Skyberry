@@ -36,3 +36,28 @@ describe("upload queue", () => {
     expect(overallProgress([])).toBe(0);
   });
 });
+
+import { swipeDirection } from "../useSwipe";
+import { pickAudioMime } from "../../modules/media/VoiceRecorder";
+describe("swipe", () => {
+  it("needs distance and horizontal intent", () => {
+    expect(swipeDirection(-100, 10)).toBe("left"); expect(swipeDirection(100, -20)).toBe("right");
+    expect(swipeDirection(30, 0)).toBeNull(); expect(swipeDirection(100, 90)).toBeNull();
+  });
+});
+describe("recorder format", () => {
+  it("prefers webm/opus, falls back to mp4 (Safari), else null", () => {
+    expect(pickAudioMime(() => true)?.ext).toBe("webm");
+    expect(pickAudioMime((t) => t === "audio/mp4")).toEqual({ mime: "audio/mp4", ext: "m4a" });
+    expect(pickAudioMime(() => false)).toBeNull();
+  });
+});
+
+import { isCorrect, pick, TRIVIA } from "../../modules/social/games";
+describe("games", () => {
+  it("scores trivia defensively and picks deterministically with a supplied rng", () => {
+    expect(isCorrect({ answer: 2 }, 2)).toBe(true); expect(isCorrect({ answer: 2 }, 1)).toBe(false); expect(isCorrect({}, 0)).toBe(false); expect(isCorrect({ answer: "2" as never }, 2)).toBe(false);
+    expect(pick(["a", "b", "c"], () => 0.99)).toBe("c");
+    for (const t of TRIVIA) { expect(t.answer).toBeGreaterThanOrEqual(0); expect(t.answer).toBeLessThan(t.options.length); }
+  });
+});

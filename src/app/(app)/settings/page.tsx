@@ -27,6 +27,7 @@ export default function Settings() {
       <label className="row"><input type="checkbox" style={{ width: "auto" }} checked={prefs.reducedMotion} onChange={(e) => setPrefs({ reducedMotion: e.target.checked })} />Reduced motion</label>
       <label className="row"><input type="checkbox" style={{ width: "auto" }} checked={prefs.lowPower} onChange={(e) => setPrefs({ lowPower: e.target.checked })} />Low-power 3D (simpler models, lower resolution)</label>
       <label className="row"><input type="checkbox" style={{ width: "auto" }} checked={prefs.universe3d} onChange={(e) => setPrefs({ universe3d: e.target.checked })} />3D Ocean Universe (off = simple list)</label>
+      <label className="row"><input type="checkbox" style={{ width: "auto" }} checked={prefs.sounds} onChange={(e) => setPrefs({ sounds: e.target.checked })} />Playful sound effects (reactions, new messages)</label>
       <label>3D ocean background
         <select value={prefs.bg} onChange={(e) => setPrefs({ bg: e.target.value as "auto" | "on" | "off" })}><option value="auto">Auto (reduces on weaker devices)</option><option value="on">Always on</option><option value="off">Off</option></select></label>
       <label>Background intensity<input type="range" min={0} max={1} step={0.05} value={prefs.bgIntensity} onChange={(e) => setPrefs({ bgIntensity: +e.target.value })} /></label>
