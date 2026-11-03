@@ -16,5 +16,5 @@ export const POST = (req: Request) => authed(async ({ user }) => {
   const path = `${user.id}/${Date.now()}-${crypto.randomUUID().slice(0, 8)}.${v.ext}`;
   const { data, error } = await db.storage.from("media").createSignedUploadUrl(path);
   if (error) throw error;
-  return { ok: true, path, token: data.token, kind: v.kind, usedBytes: Number(used) || 0, quotaBytes: QUOTA_BYTES };
+  return { ok: true, path, token: data.token, signedUrl: data.signedUrl, kind: v.kind, usedBytes: Number(used) || 0, quotaBytes: QUOTA_BYTES };
 });

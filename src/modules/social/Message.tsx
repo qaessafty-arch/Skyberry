@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { signedUrl } from "@/lib/data";
+import { formatBytes } from "@/lib/media/helpers";
 
 export interface Msg { id: string; conversation_id?: string; sender_id: string; kind: string; body: string | null; media_path: string | null; meta: Record<string, unknown>; created_at: string; reply_to?: string | null; forwarded_from?: string | null; edited_at?: string | null; deleted_at?: string | null }
 export interface Reaction { message_id: string; user_id: string; emoji: string }
@@ -8,9 +9,12 @@ export interface Reaction { message_id: string; user_id: string; emoji: string }
 export function MessageBody({ m, me, reactions, onVote }: { m: Msg; me: string; reactions: Reaction[]; onVote: (i: number) => void }) {
   const [url, setUrl] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
-  useEffect(() => { if (m.media_path) signedUrl(m.media_path).then(setUrl); }, [m.media_path]);
+  useEffect(() => { if (m.media_path && m.kind !== "file") signedUrl(m.media_path).then(setUrl); }, [m.media_path, m.kind]);
   if (m.deleted_at) return <em className="muted">🚫 This message was deleted</em>;
   if (m.kind === "image") return url ? <img src={url} alt={m.body ?? "Shared photo"} style={{ maxWidth: "100%", borderRadius: 14 }} /> : <span className="muted">Loading photo…</span>;
+  if (m.kind === "video") return url ? <video src={url} controls preload="metadata" playsInline style={{ maxWidth: "100%", borderRadius: 14 }} /> : <span className="muted">Loading video…</span>;
+  if (m.kind === "audio" || m.kind === "voice") return url ? <audio src={url} controls preload="metadata" style={{ maxWidth: "100%" }} /> : <span className="muted">Loading audio…</span>;
+  if (m.kind === "file") { const meta = m.meta as { name?: string; size?: number }; return <button className="btn ghost" onClick={async () => { const u = url ?? (m.media_path ? await signedUrl(m.media_path) : null); if (u) window.open(u, "_blank", "noopener"); }} style={{ display: "flex", gap: 8, textAlign: "left" }}>📄 <span><b style={{ wordBreak: "break-all" }}>{meta.name ?? m.body ?? "File"}</b>{meta.size ? <span className="muted"> · {formatBytes(meta.size)}</span> : null}</span></button>; }
   if (m.kind === "sticker") return <span style={{ fontSize: "3rem" }} role="img" aria-label="sticker">{m.body}</span>;
   if (m.kind === "secret") return open ? <span>{m.body}</span> : <button className="btn ghost" onClick={() => setOpen(true)}>🔒 Tap to reveal</button>;
   if (m.kind === "surprise") return open ? <span style={{ fontSize: "1.6rem" }}>🎉 {String(m.meta.item ?? "A surprise!")}</span> : <button className="btn" onClick={() => setOpen(true)} aria-label="Open surprise gift">🎁 Tap to open</button>;

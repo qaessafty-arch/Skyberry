@@ -10,6 +10,9 @@ import { PetStage } from "@/modules/social/Pet";
 import { MessageBody, type Msg, type Reaction } from "@/modules/social/Message";
 import { usePetMood, type PetEvent } from "@/modules/social/usePetMood";
 import type { SpeciesId, Personality } from "@/modules/pets/catalog";
+import { MediaGallery } from "@/modules/media/MediaGallery";
+import { useUploadQueue } from "@/modules/media/useUploadQueue";
+import { UploadPanel } from "@/modules/media/UploadPanel";
 import { DEFAULT_STYLE, sanitizeStyle, styleVars, type ChatStyle } from "@/modules/social/chatStyle";
 
 const STICKERS = ["😂", "🥹", "🔥", "🫶", "🐙", "🦈", "🐬", "🌊", "🎉", "💙"];
@@ -48,6 +51,10 @@ function Chat() {
   const [unread, setUnread] = useState<Record<string, number>>({});
   const [style, setStyle] = useState<ChatStyle>(DEFAULT_STYLE);
   const [styling, setStyling] = useState(false);
+  const [gallery, setGallery] = useState(false);
+  const [original, setOriginal] = useState(false);
+  const [dragging, setDragging] = useState(false);
+  const dragDepth = useRef(0);
   const bottom = useRef<HTMLDivElement>(null);
   const channel = useRef<ReturnType<ReturnType<typeof supabase>["channel"]> | null>(null);
   const lastTyping = useRef(0);
@@ -61,6 +68,14 @@ function Chat() {
   const group = groups.find((g) => g.id === cid);
   useEffect(() => { if (!group || !me) return; supabase().from("conversation_members").select("role").eq("conversation_id", group.id).eq("user_id", me.id).maybeSingle().then(({ data }) => setMyRole(data?.role ?? "member")); }, [group, me]);
   const locked = !!group?.only_admins_post && myRole === "member";
+  const uploads = useUploadQueue(cid, { original, replyTo: replyTo?.id, onSent: () => setReplyTo(null) });
+  const hasFiles = (e: React.DragEvent) => Array.from(e.dataTransfer?.types ?? []).includes("Files");
+  const dragProps = locked ? {} : {
+    onDragEnter: (e: React.DragEvent) => { if (!hasFiles(e)) return; e.preventDefault(); dragDepth.current++; setDragging(true); },
+    onDragOver: (e: React.DragEvent) => { if (hasFiles(e)) e.preventDefault(); },
+    onDragLeave: (e: React.DragEvent) => { if (!hasFiles(e)) return; dragDepth.current = Math.max(0, dragDepth.current - 1); if (!dragDepth.current) setDragging(false); },
+    onDrop: (e: React.DragEvent) => { if (!hasFiles(e)) return; e.preventDefault(); dragDepth.current = 0; setDragging(false); uploads.add(Array.from(e.dataTransfer.files)); },
+  };
   const names = useMemo(() => new Map([[me?.id ?? "", "You"], ...accepted.map((f) => [f.other.id, f.other.display_name] as [string, string])]), [me, accepted]);
 
   useEffect(() => {
@@ -223,7 +238,7 @@ function Chat() {
   const shown = results ?? msgs;
 
   return (
-    <div className={`chat ${prefs.reducedMotion ? "reduced" : ""}`}>
+    <div className={`chat ${gallery ? "with-gallery" : ""} ${prefs.reducedMotion ? "reduced" : ""}`}>
       <aside className="glass card" style={{ overflow: "auto" }} aria-label="Conversations">
         {groups.map((g) => (
           <button key={g.id} className={`btn ${g.id === cid ? "" : "ghost"}`} style={{ width: "100%", marginBottom: 8, textAlign: "left", display: "flex", justifyContent: "space-between" }} onClick={() => router.push(`/chats?c=${g.id}`)}>
@@ -236,7 +251,8 @@ function Chat() {
             <span>{f.conversationId && unread[f.conversationId] ? <span className="chip">{unread[f.conversationId]}</span> : null}{s.value > 0 && ` ${s.status === "resting" ? "🌙" : "🔥"} ${s.value}`}</span>
           </button>); })}
       </aside>
-      <section className="glass thread" style={styleVars(style) as React.CSSProperties}>
+      <section className="glass thread" style={{ ...(styleVars(style) as React.CSSProperties), position: "relative" }} {...dragProps}>
+        {dragging && <div role="presentation" style={{ position: "absolute", inset: 0, zIndex: 5, display: "grid", placeItems: "center", background: "rgba(10,132,255,.18)", border: "3px dashed var(--blue)", borderRadius: 22, pointerEvents: "none", fontWeight: 700, fontSize: "1.2rem" }}>Drop to share in this chat 🌊</div>}
         {!online && <div role="status" className="chip" style={{ margin: 8, background: "#ffe3e3" }}>You're offline — messages will wait to be sent. Check your connection.</div>}
         {group && <div style={{ padding: 12, borderBottom: "1px solid var(--line)" }}><div className="row" style={{ justifyContent: "space-between" }}><span><b>🏝️ {group.title}</b> <span className="muted">· group room</span></span><a className="btn ghost" href={`/rooms/${group.id}`}>⚙️ Group settings</a></div>{group.announcement && <div style={{ marginTop: 6 }} role="note">📣 {group.announcement}</div>}</div>}
         {active?.pet && (
@@ -250,7 +266,7 @@ function Chat() {
               {otherId && <button className="btn ghost" style={{ marginTop: 6, marginLeft: 6 }} onClick={async () => { if (confirm(`Block ${active.other.display_name}? They won't be able to message you or see your moments.`)) { await api("/api/blocks", "POST", { userId: otherId, blocked: true }); setToast("Blocked"); } }}>Block</button>}
             </div>
           </div>)}
-        <div className="row" style={{ padding: "6px 10px" }}><button className="btn ghost" onClick={() => setStyling(!styling)} aria-expanded={styling}>🎨 Customize chat</button></div>
+        <div className="row" style={{ padding: "6px 10px" }}><button className="btn ghost" onClick={() => setStyling(!styling)} aria-expanded={styling}>🎨 Customize chat</button><button className="btn ghost" onClick={() => setGallery(!gallery)} aria-expanded={gallery}>🖼️ Media</button></div>
         {styling && <div className="card" style={{ display: "grid", gap: 6, borderBottom: "1px solid var(--line)" }}>
           <div className="row"><label>Bubbles <input type="color" value={style.bubble} onChange={(e) => saveStyle({ ...style, bubble: e.target.value })} style={{ width: 50, padding: 2 }} /></label>
             <select aria-label="Background" value={style.bg} onChange={(e) => saveStyle({ ...style, bg: e.target.value as ChatStyle["bg"] })} style={{ width: "auto" }}><option value="none">Default</option><option value="ocean">Ocean</option><option value="deep">Deep sea</option><option value="sunset">Sunset</option><option value="mint">Mint</option><option value="custom">Custom colour</option></select>
@@ -312,6 +328,7 @@ function Chat() {
         {toast && <div className="chip" role="status" style={{ alignSelf: "center", marginBottom: 6 }}>{toast}</div>}
         <div style={{ padding: 10, borderTop: "1px solid var(--line)", display: "grid", gap: 8 }}>
           {(replyTo || editing) && <div className="chip" style={{ justifyContent: "space-between" }}>{editing ? "Editing message" : `Replying to ${(replyTo!.body ?? "media").slice(0, 40)}`}<button className="btn ghost" style={{ padding: ".1em .6em" }} onClick={() => { setReplyTo(null); setEditing(null); setText(""); }} aria-label="Cancel">✕</button></div>}
+          <UploadPanel uploads={uploads} />
           <div className="row">
             {STICKERS.map((s) => <button key={s} className="btn ghost" style={{ padding: ".3em .5em" }} aria-label={`Send ${s}`} onClick={() => send("sticker", s)}>{s}</button>)}
             <button className="btn ghost" onClick={() => { const [a, b] = WYR[Math.floor(Math.random() * WYR.length)]; send("game", "Would you rather…", { q: "Would you rather…", options: [a, b] }); }}>🎲 Would you rather</button>
@@ -320,12 +337,15 @@ function Chat() {
           </div>
           {locked && <div className="muted" role="status">Only admins can send messages in this group.</div>}
           <form className="row" onSubmit={submit} aria-disabled={locked} style={locked ? { opacity: 0.5, pointerEvents: "none" } : undefined}>
-            <input style={{ flex: 1 }} value={text} onChange={(e) => onType(e.target.value)} placeholder={secret ? "Secret message (tap to reveal)…" : "Message…"} aria-label="Message" maxLength={4000} />
+            <input style={{ flex: 1 }} value={text} onChange={(e) => onType(e.target.value)} onPaste={(e) => { const fs = Array.from(e.clipboardData.files); if (fs.length) { e.preventDefault(); uploads.add(fs); } }} placeholder={secret ? "Secret message (tap to reveal)…" : "Message…"} aria-label="Message" maxLength={4000} />
+            <label className="btn ghost" style={{ cursor: "pointer", padding: ".5em .8em" }} aria-label="Attach files">📎<input type="file" multiple hidden onChange={(e) => { uploads.add(Array.from(e.target.files ?? [])); e.target.value = ""; }} /></label>
+            <label className="chip" title="Skip photo compression"><input type="checkbox" checked={original} onChange={(e) => setOriginal(e.target.checked)} style={{ width: "auto" }} />Original quality</label>
             <label className="chip"><input type="checkbox" checked={secret} onChange={(e) => setSecret(e.target.checked)} style={{ width: "auto" }} />🔒</label>
             <button className="btn">{editing ? "Save" : "Send"}</button>
           </form>
         </div>
       </section>
+      {gallery && cid && <MediaGallery conversationId={cid} onClose={() => setGallery(false)} />}
     </div>
   );
 }
