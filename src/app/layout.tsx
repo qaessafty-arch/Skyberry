@@ -1,3 +1,4 @@
+import "@fontsource-variable/geist";
 import "./globals.css";
 import type { Metadata, Viewport } from "next";
 import { BRAND } from "@/lib/brand";
